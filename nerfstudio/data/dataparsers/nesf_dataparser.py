@@ -133,7 +133,7 @@ class Nesf(DataParser):
         data_parser_outputs = []
         for conf in data_config["config"]:
             nerfstudio = NerfstudioDataParserConfig(**conf["model_config"]).setup()
-            dataparser_output = nerfsutio.get_dataparser_outputs()
+            dataparser_output = nerfstudio.get_dataparser_outputs()
             models.append({
                 "load_dir": conf["load_dir"],
                 "load_step": conf["load_step"],
