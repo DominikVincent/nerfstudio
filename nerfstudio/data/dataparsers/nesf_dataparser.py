@@ -53,56 +53,54 @@ from nerfstudio.cameras.cameras import Cameras
 from nerfstudio.configs.config_utils import to_immutable_dict
 from nerfstudio.data.scene_box import SceneBox
 
-
 CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
 
 
-
-@dataclass
-class NesfDataparserOutputs:
-    """Dataparser outputs for the which will be used by the DataManager
-    for creating RayBundle and RayGT objects."""
-
-    image_filenames: List[List[Path]]
-    """Filenames for the images."""
-    cameras: List[Cameras]
-    """Camera object storing collection of camera information in dataset."""
-    alpha_color: Optional[List[TensorType[3]]] = None
-    """Color of dataset background."""
-    scene_box: List[SceneBox] = field(default_factory=lambda: [SceneBox()])
-    """Scene box of dataset. Used to bound the scene or provide the scene scale depending on model."""
-    mask_filenames: Optional[List[List[Path]]] = None
-    """Filenames for any masks that are required"""
-    metadata: Dict[str, Any] = to_immutable_dict({})
-    """Dictionary of any metadata that be required for the given experiment.
-    Will be processed by the InputDataset to create any additional tensors that may be required.
-    """
-    dataparser_transform: List[TensorType[3, 4]] = torch.eye(4)[:3, :]
-    """Transform applied by the dataparser."""
-    dataparser_scale: List[float] = 1.0
-    """Scale applied by the dataparser."""
-
-    def as_dict(self) -> dict:
-        """Returns the dataclass as a dictionary."""
-        return vars(self)
-
-    def save_dataparser_transform(self, path: Path):
-        """Save dataparser transform to json file. Some dataparsers will apply a transform to the poses,
-        this method allows the transform to be saved so that it can be used in other applications.
-
-        Args:
-            path: path to save transform to
-        """
-        data = {
-            "transform": [transform.tolist() for transform in self.dataparser_transform],
-            "scale": [float(scale) for scale in self.dataparser_scale],
-        }
-        if not path.parent.exists():
-            path.parent.mkdir(parents=True)
-        with open(path, "w", encoding="UTF-8") as file:
-            json.dump(data, file, indent=4)
-
+# TODO delete if not needed
+# @dataclass
+# class NesfDataparserOutputs:
+#     """Dataparser outputs for the which will be used by the DataManager
+#     for creating RayBundle and RayGT objects."""
+#
+#     image_filenames: List[List[Path]]
+#     """Filenames for the images."""
+#     cameras: List[Cameras]
+#     """Camera object storing collection of camera information in dataset."""
+#     alpha_color: Optional[List[TensorType[3]]] = None
+#     """Color of dataset background."""
+#     scene_box: List[SceneBox] = field(default_factory=lambda: [SceneBox()])
+#     """Scene box of dataset. Used to bound the scene or provide the scene scale depending on model."""
+#     mask_filenames: Optional[List[List[Path]]] = None
+#     """Filenames for any masks that are required"""
+#     metadata: Dict[str, Any] = to_immutable_dict({})
+#     """Dictionary of any metadata that be required for the given experiment.
+#     Will be processed by the InputDataset to create any additional tensors that may be required.
+#     """
+#     dataparser_transform: List[TensorType[3, 4]] = torch.eye(4)[:3, :]
+#     """Transform applied by the dataparser."""
+#     dataparser_scale: List[float] = 1.0
+#     """Scale applied by the dataparser."""
+#
+#     def as_dict(self) -> dict:
+#         """Returns the dataclass as a dictionary."""
+#         return vars(self)
+#
+#     def save_dataparser_transform(self, path: Path):
+#         """Save dataparser transform to json file. Some dataparsers will apply a transform to the poses,
+#         this method allows the transform to be saved so that it can be used in other applications.
+#
+#         Args:
+#             path: path to save transform to
+#         """
+#         data = {
+#             "transform": [transform.tolist() for transform in self.dataparser_transform],
+#             "scale": [float(scale) for scale in self.dataparser_scale],
+#         }
+#         if not path.parent.exists():
+#             path.parent.mkdir(parents=True)
+#         with open(path, "w", encoding="UTF-8") as file:
+#             json.dump(data, file, indent=4)
 
 
 @dataclass
@@ -112,7 +110,8 @@ class NesfDataParserConfig(DataParserConfig):
     _target: Type = field(default_factory=lambda: Nesf)
 
     data_config: Path = Path("")
-    """Path to the config of the Nesf data. It's a json {config:[{model_config: config, load_step: 1, load_dir:1}, ...]}"""
+    """Path to the config of the Nesf data. It's a json {config:[{model_config: config, load_step: 1, load_dir:1}, 
+    ...]}"""
 
 
 @dataclass
@@ -139,18 +138,60 @@ class Nesf(DataParser):
                 "load_step": conf["load_step"],
                 "data_parser": nerfstudio
             })
-            data_parser_outputs.append(dataparser_output)
             # TODO maybe load model
 
-        dataparser_outputs = NesfDataparserOutputs(
-            image_filenames=[data_parser_output.image_filenames for data_parser_output in data_parser_outputs],
-            cameras=[data_parser_output.cameras for data_parser_output in data_parser_outputs],
-            scene_box=[data_parser_output.scene_box for data_parser_output in data_parser_outputs],
-            mask_filenames=[data_parser_output.mask_filenames if len(data_parser_output.mask_filenames) > 0 else None for data_parser_output in data_parser_outputs],
-            dataparser_scale=[data_parser_output.dataparser_scale for data_parser_output in data_parser_outputs],
-            dataparser_transform=[data_parser_output.dataparser_scale for data_parser_output in data_parser_outputs],
-            metadata={
-                # TODO safe model here
-            },
-        )
-        return dataparser_outputs
+            # TODO update dataparser_output.metadata with model
+            dataparser_output.metadata.update({})
+
+            data_parser_outputs.append(dataparser_output)
+
+        # dataparser_outputs = NesfDataparserOutputs(
+        #     image_filenamestrainConfig = TrainerConfig(
+        #     method_name="nerfacto",
+        #     experiment_name="/tmp",
+        #     data=DATA_PATH,
+        #     output_dir=OUTPUT_DIR,
+        #     steps_per_eval_batch=500,
+        #     steps_per_save=2000,
+        #     max_num_iterations=30000,
+        #     mixed_precision=True,
+        #     pipeline=VanillaPipelineConfig(
+        #         datamanager=VanillaDataManagerConfig(
+        #             dataparser=NerfstudioDataParserConfig(),
+        #             train_num_rays_per_batch=4096,
+        #             eval_num_rays_per_batch=4096,
+        #             camera_optimizer=CameraOptimizerConfig(
+        #                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+        #             ),
+        #
+        #         ),
+        #         model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
+        #     ),
+        #     optimizers={
+        #         "proposal_networks": {
+        #             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+        #             "scheduler": None,
+        #         },
+        #         "fields": {
+        #             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+        #             "scheduler": None,
+        #         },
+        #     },
+        #     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+        #     vis="tensorboard",
+        #     load_dir=MODEL_CHECKPOINT_PATH,
+        #     load_step=MODEL_LOAD_STEP
+        # )=[data_parser_output.image_filenames for data_parser_output in data_parser_outputs],
+        #     cameras=[data_parser_output.cameras for data_parser_output in data_parser_outputs],
+        #     scene_box=[data_parser_output.scene_box for data_parser_output in data_parser_outputs],
+        #     mask_filenames=[data_parser_output.mask_filenames if len(data_parser_output.mask_filenames) > 0 else None for data_parser_output in data_parser_outputs],
+        #     dataparser_scale=[data_parser_output.dataparser_scale for data_parser_output in data_parser_outputs],
+        #     dataparser_transform=[data_parser_output.dataparser_scale for data_parser_output in data_parser_outputs],
+        #     metadata={
+        #         # TODO safe model here
+        #     },
+        # )
+        return data_parser_outputs
+
+
+    def _load_model(self, load_dir: Path, load_step: int, config: Dict) -> Model:
