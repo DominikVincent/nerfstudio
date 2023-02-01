@@ -27,7 +27,9 @@ from rich.console import Console
 from typing_extensions import Literal
 
 from nerfstudio.cameras import camera_utils
+from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.cameras.cameras import CAMERA_MODEL_TO_TYPE, Cameras, CameraType
+from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
 from nerfstudio.data.dataparsers.base_dataparser import (
     DataParser,
     DataParserConfig,
@@ -35,6 +37,11 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 )
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
 from nerfstudio.data.scene_box import SceneBox
+from nerfstudio.engine.optimizers import AdamOptimizerConfig
+from nerfstudio.engine.trainer import TrainerConfig
+from nerfstudio.models.base_model import Model
+from nerfstudio.models.nerfacto import NerfactoModelConfig
+from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 from nerfstudio.utils.io import load_from_json
 
 from __future__ import annotations
@@ -110,8 +117,73 @@ class NesfDataParserConfig(DataParserConfig):
     _target: Type = field(default_factory=lambda: Nesf)
 
     data_config: Path = Path("")
-    """Path to the config of the Nesf data. It's a json {config:[{model_config: config, load_step: 1, load_dir:1}, 
+    """Path to the config of the Nesf data. It's a json {config:[{model_config: config, data_parser_config: config, load_step: 1, load_dir:1}, 
     ...]}"""
+
+
+def _load_model(load_dir: Path, load_step: int, data_dir: Path, config: Dict) -> Model:
+    """
+    Loads the model from a path via a Trainer and then extracts the model from the pipeline. The rest of the
+    trainer gets ignored.
+
+    TODO load just the model from the state dict instead of having trainer
+    TODO use inference mode to setup trainer, but it has a bug
+    TODO make it customizable by using the config of the model
+
+
+    :param load_dir: dir of the model
+    :param load_step: checkpoint step of the model
+    :param data_dir: dir of where the data of the model is located
+    :param config: model config. Not used yet
+    :return: a loaded model.
+    """
+    train_config = TrainerConfig(
+        method_name="nerfacto",
+        experiment_name="tmp",
+        data=data_dir,
+        output_dir=Path("/tmp"),
+        steps_per_eval_batch=500,
+        steps_per_save=2000,
+        max_num_iterations=30000,
+        mixed_precision=True,
+        pipeline=VanillaPipelineConfig(
+            datamanager=VanillaDataManagerConfig(
+                dataparser=NerfstudioDataParserConfig(),
+                train_num_rays_per_batch=4096,
+                eval_num_rays_per_batch=4096,
+                camera_optimizer=CameraOptimizerConfig(
+                    mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+                ),
+
+            ),
+            model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
+        ),
+        optimizers={
+            "proposal_networks": {
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": None,
+            },
+            "fields": {
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+                "scheduler": None,
+            },
+        },
+        vis="tensorboard",
+        load_dir=load_dir,
+        load_step=load_step
+    )
+
+    train_config.set_timestamp()
+    train_config.pipeline.datamanager.dataparser.data = train_config.data
+    train_config.save_config()
+
+    trainer = train_config.setup(local_rank=0, world_size=1)
+    trainer.setup()
+
+    pipeline = trainer.pipeline
+    model = pipeline.model
+
+    return model
 
 
 @dataclass
@@ -131,7 +203,7 @@ class Nesf(DataParser):
         models = []
         data_parser_outputs = []
         for conf in data_config["config"]:
-            nerfstudio = NerfstudioDataParserConfig(**conf["model_config"]).setup()
+            nerfstudio = NerfstudioDataParserConfig(**conf["data_parser_config"]).setup()
             dataparser_output = nerfstudio.get_dataparser_outputs()
             models.append({
                 "load_dir": conf["load_dir"],
@@ -140,48 +212,21 @@ class Nesf(DataParser):
             })
             # TODO maybe load model
 
+            # parent path of file
+            data_path = dataparser_output.image_filenames[0].parent.resolve()
+            model = _load_model(load_dir=conf["load_dir"],
+                                load_step=conf["load_step"],
+                                data_dir=data_path,
+                                config=conf["model_config"]
+                                )
+
             # TODO update dataparser_output.metadata with model
-            dataparser_output.metadata.update({})
+            dataparser_output.metadata.update({"model": model})
 
             data_parser_outputs.append(dataparser_output)
 
-        # dataparser_outputs = NesfDataparserOutputs(
-        #     image_filenamestrainConfig = TrainerConfig(
-        #     method_name="nerfacto",
-        #     experiment_name="/tmp",
-        #     data=DATA_PATH,
-        #     output_dir=OUTPUT_DIR,
-        #     steps_per_eval_batch=500,
-        #     steps_per_save=2000,
-        #     max_num_iterations=30000,
-        #     mixed_precision=True,
-        #     pipeline=VanillaPipelineConfig(
-        #         datamanager=VanillaDataManagerConfig(
-        #             dataparser=NerfstudioDataParserConfig(),
-        #             train_num_rays_per_batch=4096,
-        #             eval_num_rays_per_batch=4096,
-        #             camera_optimizer=CameraOptimizerConfig(
-        #                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-        #             ),
-        #
-        #         ),
-        #         model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
-        #     ),
-        #     optimizers={
-        #         "proposal_networks": {
-        #             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-        #             "scheduler": None,
-        #         },
-        #         "fields": {
-        #             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-        #             "scheduler": None,
-        #         },
-        #     },
-        #     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-        #     vis="tensorboard",
-        #     load_dir=MODEL_CHECKPOINT_PATH,
-        #     load_step=MODEL_LOAD_STEP
-        # )=[data_parser_output.image_filenames for data_parser_output in data_parser_outputs],
+        # TODO remove if uneeded
+        # dataparser_outputs = NesfDataparserOutputs([data_parser_output.image_filenames for data_parser_output in data_parser_outputs],
         #     cameras=[data_parser_output.cameras for data_parser_output in data_parser_outputs],
         #     scene_box=[data_parser_output.scene_box for data_parser_output in data_parser_outputs],
         #     mask_filenames=[data_parser_output.mask_filenames if len(data_parser_output.mask_filenames) > 0 else None for data_parser_output in data_parser_outputs],
@@ -192,6 +237,3 @@ class Nesf(DataParser):
         #     },
         # )
         return data_parser_outputs
-
-
-    def _load_model(self, load_dir: Path, load_step: int, config: Dict) -> Model:
