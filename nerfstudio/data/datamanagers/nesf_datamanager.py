@@ -264,6 +264,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         Returns:
             A list of dictionaries containing the data manager's param groups.
         """
+        # TODO consider whether this is needed as the models parameters are assumed to be fixed. Potentially return {}
         param_groups = {}
         for train_camera_optimizer in self.train_camera_optimizers:
             camera_opt_params = list(train_camera_optimizer.parameters())
