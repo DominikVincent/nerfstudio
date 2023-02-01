@@ -35,7 +35,7 @@ from nerfstudio.data.dataparsers.phototourism_dataparser import (
     PhototourismDataParserConfig,
 )
 from nerfstudio.data.datasets.base_dataset import InputDataset
-from nerfstudio.data.datasets.nesf_dataset import NesfDataset
+from nerfstudio.data.datasets.old_nesf_dataset import NesfDataset
 from nerfstudio.data.pixel_samplers import EquirectangularPixelSampler, PixelSampler
 from nerfstudio.data.utils.dataloaders import (
     CacheDataloader,
@@ -133,12 +133,12 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
 
     def create_train_datasets(self) -> List[InputDataset]:
         """Sets up the data loaders for training"""
-        return [InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
+        return [NesfDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
                 dataparser_output in self.train_dataparser_outputs]
 
     def create_eval_datasets(self) -> List[InputDataset]:
         """Sets up the data loaders for evaluation"""
-        return [InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
+        return [NesfDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
                 dataparser_output in self.dataparser.get_dataparser_outputs(split=self.test_split)]
 
     def _get_pixel_sampler(  # pylint: disable=no-self-use
