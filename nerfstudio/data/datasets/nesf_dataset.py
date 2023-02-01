@@ -1,4 +1,4 @@
-
+# TODO remove if not needed
 
 
 
@@ -44,6 +44,9 @@ class NesfDataset(Dataset):
 
     def __len__(self):
         return sum([len(dataparser_output.image_filenames) for dataparser_output in self._dataparser_outputs])
+
+    def camera_size(self):
+        return sum([len(camera) for camera in self.cameras])
 
     def _get_model_image_indices(self, image_idx: int) -> (int, int):
         if image_idx in self.idx_model_table:

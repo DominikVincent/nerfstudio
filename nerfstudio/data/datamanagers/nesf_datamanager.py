@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
+import numpy as np
 import torch
 import tyro
 from rich.progress import Console
@@ -31,6 +34,7 @@ from nerfstudio.data.dataparsers.nuscenes_dataparser import NuScenesDataParserCo
 from nerfstudio.data.dataparsers.phototourism_dataparser import (
     PhototourismDataParserConfig,
 )
+from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.datasets.nesf_dataset import NesfDataset
 from nerfstudio.data.pixel_samplers import EquirectangularPixelSampler, PixelSampler
 from nerfstudio.data.utils.dataloaders import (
@@ -42,7 +46,6 @@ from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
 from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
 from nerfstudio.model_components.ray_generators import RayGenerator
 from nerfstudio.utils.misc import IterableWrapper
-
 
 
 @dataclass
@@ -81,7 +84,8 @@ class NesfDataManagerConfig(InstantiateConfig):
     """The scale factor for scaling spatial data such as images, mask, semantics
     along with relevant information about camera intrinsics
     """
-    semantic_data
+    steps_per_model: int = 10
+    """Number of steps one model is queried before the next model is queried. The models are taken sequentially."""
 
 
 class NesfDataManager(DataManager):  # pylint: disable=abstract-method
@@ -105,13 +109,13 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     eval_pixel_sampler: Optional[PixelSampler] = None
 
     def __init__(
-        self,
-        config: NesfDataManagerConfig,
-        device: Union[torch.device, str] = "cpu",
-        test_mode: Literal["test", "val", "inference"] = "val",
-        world_size: int = 1,
-        local_rank: int = 0,
-        **kwargs,  # pylint: disable=unused-argument
+            self,
+            config: NesfDataManagerConfig,
+            device: Union[torch.device, str] = "cpu",
+            test_mode: Literal["test", "val", "inference"] = "val",
+            world_size: int = 1,
+            local_rank: int = 0,
+            **kwargs,  # pylint: disable=unused-argument
     ):
         self.config = config
         self.device = device
@@ -123,114 +127,133 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.dataparser = self.config.dataparser.setup()
         self.train_dataparser_outputs = self.dataparser.get_dataparser_outputs(split="train")
 
-        self.train_dataset = self.create_train_dataset()
-        self.eval_dataset = self.create_eval_dataset()
+        self.train_datasets = self.create_train_datasets()
+        self.eval_datasets = self.create_eval_datasets()
         super().__init__()
 
-    def create_train_dataset(self) -> NesfDataset:
+    def create_train_datasets(self) -> List[InputDataset]:
         """Sets up the data loaders for training"""
-        return NesfDataset(
-            dataparser_outputs=self.train_dataparser_outputs,
-            scale_factor=self.config.camera_res_scale_factor,
-        )
+        return [InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
+                dataparser_output in self.train_dataparser_outputs]
 
-    def create_eval_dataset(self) -> NesfDataset:
+    def create_eval_datasets(self) -> List[InputDataset]:
         """Sets up the data loaders for evaluation"""
-        return NesfDataset(
-            dataparser_outputs=self.dataparser.get_dataparser_outputs(split=self.test_split),
-            scale_factor=self.config.camera_res_scale_factor,
-        )
+        return [InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
+                dataparser_output in self.dataparser.get_dataparser_outputs(split=self.test_split)]
 
     def _get_pixel_sampler(  # pylint: disable=no-self-use
-        self, dataset: NesfDataset, *args: Any, **kwargs: Any
+            self, dataset: NesfDataset, *args: Any, **kwargs: Any
     ) -> PixelSampler:
         """Infer pixel sampler to use."""
+        is_equirectangular = [camera.camera_type == CameraType.EQUIRECTANGULAR.value for camera in dataset.cameras]
+
         # If all images are equirectangular, use equirectangular pixel sampler
-        is_equirectangular = dataset.cameras.camera_type == CameraType.EQUIRECTANGULAR.value
-        if is_equirectangular.all():
+        if np.all(is_equirectangular):
             return EquirectangularPixelSampler(*args, **kwargs)
         # Otherwise, use the default pixel sampler
-        if is_equirectangular.any():
+        if np.any(is_equirectangular):
             CONSOLE.print("[bold yellow]Warning: Some cameras are equirectangular, but using default pixel sampler.")
         return PixelSampler(*args, **kwargs)
 
     def setup_train(self):
         """Sets up the data loaders for training"""
-        assert self.train_dataset is not None
+        assert self.train_datasets is not None
         CONSOLE.print("Setting up training dataset...")
-        self.train_image_dataloader = CacheDataloader(
-            self.train_dataset,
+        self.train_image_dataloaders = [CacheDataloader(
+            train_dataset,
             num_images_to_sample_from=self.config.train_num_images_to_sample_from,
             num_times_to_repeat_images=self.config.train_num_times_to_repeat_images,
             device=self.device,
             num_workers=self.world_size * 4,
             pin_memory=True,
             collate_fn=self.config.collate_fn,
-        )
-        self.iter_train_image_dataloader = iter(self.train_image_dataloader)
-        self.train_pixel_sampler = self._get_pixel_sampler(self.train_dataset, self.config.train_num_rays_per_batch)
-        self.train_camera_optimizer = self.config.camera_optimizer.setup(
-            num_cameras=self.train_dataset.cameras.size, device=self.device
-        )
-        self.train_ray_generator = RayGenerator(
-            self.train_dataset.cameras.to(self.device),
-            self.train_camera_optimizer,
-        )
+        ) for train_dataset in self.train_datasets]
+        self.iter_train_image_dataloaders = [iter(eval_image_dataloader) for eval_image_dataloader in
+                                             self.train_image_dataloaders]
+
+        self.train_pixel_samplers = [self._get_pixel_sampler(train_dataset, self.config.train_num_rays_per_batch) for
+                                     train_dataset in self.train_datasets]
+
+        def get_camera_conf(group_name):
+            self.config.camera_optimizer.param_group = group_name
+            return deepcopy(self.config.camera_optimizer)
+
+        self.train_camera_optimizers = [get_camera_conf(group_name=
+                                                        get_dir_of_path(
+                                                            dataparser_output.image_filenames[0]))
+                                                        .setup(
+                                                            num_cameras=train_dataset.camera_size(), device=self.device
+                                                        ) for dataparser_output, train_dataset in
+            zip(self.train_dataparser_outputs, self.train_datasets)]
+
+        self.train_ray_generators = [RayGenerator(
+            train_dataset.cameras.to(self.device),
+            train_camera_optimizer,
+        ) for train_dataset, train_camera_optimizer in zip(self.train_datasets, self.train_camera_optimizers)]
 
     def setup_eval(self):
         """Sets up the data loader for evaluation"""
-        assert self.eval_dataset is not None
+        assert self.eval_datasets is not None
         CONSOLE.print("Setting up evaluation dataset...")
-        self.eval_image_dataloader = CacheDataloader(
-            self.eval_dataset,
+        self.eval_image_dataloaders = [CacheDataloader(
+            eval_dataset,
             num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
             num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
             device=self.device,
             num_workers=self.world_size * 4,
             pin_memory=True,
             collate_fn=self.config.collate_fn,
-        )
-        self.iter_eval_image_dataloader = iter(self.eval_image_dataloader)
-        self.eval_pixel_sampler = self._get_pixel_sampler(self.eval_dataset, self.config.eval_num_rays_per_batch)
-        self.eval_ray_generator = RayGenerator(
-            self.eval_dataset.cameras.to(self.device),
-            self.train_camera_optimizer,  # should be shared between train and eval.
-        )
+        ) for eval_dataset in self.eval_datasets]
+
+        self.iter_eval_image_dataloaders = [iter(eval_image_dataloader) for eval_image_dataloader in
+                                            self.eval_image_dataloaders]
+
+        self.eval_pixel_samplers = [self._get_pixel_sampler(eval_dataset, self.config.eval_num_rays_per_batch) for
+                                    eval_dataset in self.eval_datasets]
+        self.eval_ray_generators = [RayGenerator(
+            eval_dataset.cameras.to(self.device),
+            train_camera_optimizer,  # should be shared between train and eval.
+        ) for eval_dataset, train_camera_optimizer in zip(self.eval_datasets, self.train_camera_optimizers)]
+
         # for loading full images
-        self.fixed_indices_eval_dataloader = FixedIndicesEvalDataloader(
-            input_dataset=self.eval_dataset,
+        self.fixed_indices_eval_dataloaders = [FixedIndicesEvalDataloader(
+            input_dataset=eval_dataset,
             device=self.device,
             num_workers=self.world_size * 4,
-        )
-        self.eval_dataloader = RandIndicesEvalDataloader(
-            input_dataset=self.eval_dataset,
+        ) for eval_dataset in self.eval_datasets]
+
+        self.eval_dataloaders = [RandIndicesEvalDataloader(
+            input_dataset=eval_dataset,
             image_indices=self.config.eval_image_indices,
             device=self.device,
             num_workers=self.world_size * 4,
-        )
+        ) for eval_dataset in self.eval_datasets]
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
-        image_batch = next(self.iter_train_image_dataloader)
-        assert self.train_pixel_sampler is not None
-        batch = self.train_pixel_sampler.sample(image_batch)
+        model_idx = self.step_to_dataset(step)
+        image_batch = next(self.iter_train_image_dataloaders[model_idx])
+        assert self.train_pixel_samplers[model_idx] is not None
+        batch = self.train_pixel_samplers[model_idx].sample(image_batch)
         ray_indices = batch["indices"]
-        ray_bundle = self.train_ray_generator(ray_indices)
+        ray_bundle = self.train_ray_generators[model_idx](ray_indices)
         return ray_bundle, batch
 
     def next_eval(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
-        image_batch = next(self.iter_eval_image_dataloader)
-        assert self.eval_pixel_sampler is not None
-        batch = self.eval_pixel_sampler.sample(image_batch)
+        model_idx = self.step_to_dataset(step)
+        image_batch = next(self.iter_eval_image_dataloaders[model_idx])
+        assert self.eval_pixel_samplers[model_idx] is not None
+        batch = self.eval_pixel_samplers[model_idx].sample(image_batch)
         ray_indices = batch["indices"]
-        ray_bundle = self.eval_ray_generator(ray_indices)
+        ray_bundle = self.eval_ray_generators[model_idx](ray_indices)
         return ray_bundle, batch
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
-        for camera_ray_bundle, batch in self.eval_dataloader:
+        model_idx = self.step_to_dataset(step)
+        for camera_ray_bundle, batch in self.eval_dataloaders[model_idx]:
             assert camera_ray_bundle.camera_indices is not None
             image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
             return image_idx, camera_ray_bundle, batch
@@ -242,12 +265,20 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             A list of dictionaries containing the data manager's param groups.
         """
         param_groups = {}
-
-        camera_opt_params = list(self.train_camera_optimizer.parameters())
-        if self.config.camera_optimizer.mode != "off":
-            assert len(camera_opt_params) > 0
-            param_groups[self.config.camera_optimizer.param_group] = camera_opt_params
-        else:
-            assert len(camera_opt_params) == 0
+        for train_camera_optimizer in self.train_camera_optimizers:
+            camera_opt_params = list(train_camera_optimizer.parameters())
+            if train_camera_optimizer.conf.mode != "off":
+                assert len(camera_opt_params) > 0
+                param_groups[self.config.camera_optimizer.param_group] = camera_opt_params
+            else:
+                assert len(camera_opt_params) == 0
 
         return param_groups
+
+    def step_to_dataset(self, step: int) -> int:
+        """Returns the dataset index for the given step."""
+        return (step // self.config.steps_per_model) % len(self.train_datasets)
+
+
+def get_dir_of_path(path: Path) -> str:
+    return str(path.parent.name)
