@@ -15,50 +15,25 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
-from pathlib import Path, PurePath
-from typing import Optional, Type, List
+from pathlib import Path
+from typing import Dict, Type
 
-import numpy as np
-import torch
-from PIL import Image
 from rich.console import Console
-from typing_extensions import Literal
 
-from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
-from nerfstudio.cameras.cameras import CAMERA_MODEL_TO_TYPE, Cameras, CameraType
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
 from nerfstudio.data.dataparsers.base_dataparser import (
     DataParser,
     DataParserConfig,
-    DataparserOutputs,
 )
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
-from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.engine.optimizers import AdamOptimizerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.models.base_model import Model
 from nerfstudio.models.nerfacto import NerfactoModelConfig
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 from nerfstudio.utils.io import load_from_json
-
-from __future__ import annotations
-
-import json
-from abc import abstractmethod
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
-
-import torch
-from torchtyping import TensorType
-
-import nerfstudio.configs.base_config as cfg
-from nerfstudio.cameras.cameras import Cameras
-from nerfstudio.configs.config_utils import to_immutable_dict
-from nerfstudio.data.scene_box import SceneBox
 
 CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
