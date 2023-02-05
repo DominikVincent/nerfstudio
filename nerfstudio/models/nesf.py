@@ -4,9 +4,11 @@ from typing import Type, Dict, List, Tuple, Any
 
 import torch
 from torch.nn import Parameter
+from torchmetrics import PeakSignalNoiseRatio
 
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.engine.callbacks import TrainingCallbackAttributes, TrainingCallback
+from nerfstudio.model_components.losses import MSELoss
 from nerfstudio.models.base_model import ModelConfig, Model
 
 
@@ -23,6 +25,10 @@ class NeuralSemanticFieldModel(Model):
     def populate_modules(self):
         # TODO create 3D-Unet here
         # raise NotImplementedError
+        self.rgb_loss = MSELoss()
+        self.psnr = PeakSignalNoiseRatio(data_range=1.0)
+
+
         pass
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
@@ -42,22 +48,41 @@ class NeuralSemanticFieldModel(Model):
         # TODO do semantic rendering
 
         # Query the NeRF model at the ray bundles
-        value = torch.zeros((ray_bundle.shape.item(), 3))
+        rgb_zeros = torch.zeros((ray_bundle.shape.item(), 3))
 
-        raise value
+        outputs = {"rgb": rgb_zeros}
+
+        raise outputs
 
     def get_metrics_dict(self, outputs, batch):
         metrics_dict = {}
+        image = batch["image"].to(self.device)
+        metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         loss_dict = {}
+        image = batch["image"].to(self.device)
+        loss_dict["rgb_loss"] = self.rgb_loss(image, outputs["rgb"])
         return loss_dict
 
     def get_image_metrics_and_images(
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
-        raise NotImplementedError
+        image = batch["image"].to(self.device)
+        rgb = outputs["rgb"]
+        combined_rgb = torch.cat([image, rgb], dim=1)
+
+        # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
+        image = torch.moveaxis(image, -1, 0)[None, ...]
+        rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
+
+        images_dict = {"img": combined_rgb}
+
+        psnr = self.psnr(image, rgb)
+        metrics_dict = {"psnr": float(psnr.item())}
+
+        return metrics_dict, images_dict
 
     @torch.no_grad()
     def get_outputs_for_camera_ray_bundle(self, camera_ray_bundle: RayBundle, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
