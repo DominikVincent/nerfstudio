@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import typing
 from dataclasses import dataclass, field
+from inspect import Parameter
 from time import time
 from typing import Any, Dict, Optional, Type
 
@@ -22,8 +23,9 @@ from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManagerConfig,
 )
 from nerfstudio.data.datamanagers.nesf_datamanager import NesfDataManager
+from nerfstudio.engine.callbacks import TrainingCallbackAttributes, TrainingCallback
 from nerfstudio.models.base_model import Model, ModelConfig
-from nerfstudio.pipelines.base_pipeline import VanillaPipeline
+from nerfstudio.pipelines.base_pipeline import VanillaPipeline, Pipeline
 from nerfstudio.utils import profiler
 
 
@@ -33,13 +35,13 @@ class NesfPipelineConfig(cfg.InstantiateConfig):
 
     _target: Type = field(default_factory=lambda: NesfPipeline)
     """target class to instantiate"""
-    datamanager: VanillaDataManagerConfig = VanillaDataManagerConfig()
+    datamanager: NesfDataManager = NesfDataManager()
     """specifies the datamanager config"""
     model: ModelConfig = ModelConfig()
     """specifies the model config"""
 
 
-class NesfPipeline(VanillaPipeline):
+class NesfPipeline(Pipeline):
     """The pipeline class for the nesf nerf setup of multiple cameras for one or a few scenes.
 
             config: configuration to instantiate pipeline
@@ -206,3 +208,23 @@ class NesfPipeline(VanillaPipeline):
         # TODO questionable if this going to work
         state = {key.replace("module.", ""): value for key, value in loaded_state.items()}
         self.load_state_dict(state, strict=False)
+
+    def get_training_callbacks(
+        self, training_callback_attributes: TrainingCallbackAttributes
+    ) -> typing.List[TrainingCallback]:
+        """Returns the training callbacks from both the Dataloader and the Model."""
+        datamanager_callbacks = self.datamanager.get_training_callbacks(training_callback_attributes)
+        model_callbacks = self.model.get_training_callbacks(training_callback_attributes)
+        callbacks = datamanager_callbacks + model_callbacks
+        return callbacks
+
+    def get_param_groups(self) -> Dict[str, typing.List[Parameter]]:
+        """Get the param groups for the pipeline.
+
+        Returns:
+            A list of dictionaries containing the pipeline's param groups.
+        """
+        datamanager_params = self.datamanager.get_param_groups()
+        model_params = self.model.get_param_groups()
+        # TODO(ethan): assert that key names don't overlap
+        return {**datamanager_params, **model_params}
