@@ -34,7 +34,7 @@ class NeuralSemanticFieldModel(Model):
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         # TODO get Unet Parameters here
         # raise NotImplementedError
-        pass
+        return {}
 
     def get_training_callbacks(
             self, training_callback_attributes: TrainingCallbackAttributes

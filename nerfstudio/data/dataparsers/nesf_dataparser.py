@@ -179,6 +179,9 @@ class Nesf(DataParser):
         data_parser_outputs = []
         for conf in data_config["config"]:
             nerfstudio = NerfstudioDataParserConfig(**conf["data_parser_config"]).setup()
+            # TODO find a more global solution for casting instead of just one key
+            nerfstudio.config.data = Path(nerfstudio.config.data)
+
             dataparser_output = nerfstudio.get_dataparser_outputs()
             models.append({
                 "load_dir": conf["load_dir"],
@@ -189,7 +192,7 @@ class Nesf(DataParser):
 
             # parent path of file
             data_path = dataparser_output.image_filenames[0].parent.resolve()
-            model = _load_model(load_dir=conf["load_dir"],
+            model = _load_model(load_dir=Path(conf["load_dir"]),
                                 load_step=conf["load_step"],
                                 data_dir=data_path,
                                 config=conf["model_config"]

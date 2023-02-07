@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from torch.nn import Parameter
 from typing_extensions import Literal
+from rich.console import Console
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.cameras.cameras import CameraType
@@ -28,6 +29,8 @@ from nerfstudio.data.utils.dataloaders import (
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
 from nerfstudio.model_components.ray_generators import RayGenerator
 
+CONSOLE = Console(width=120)
+MAX_AUTO_RESOLUTION = 1600
 
 @dataclass
 class NesfDataManagerConfig(InstantiateConfig):
@@ -83,8 +86,8 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     """
 
     config: NesfDataManagerConfig
-    train_dataset: NesfDataset
-    eval_dataset: NesfDataset
+    train_datasets: NesfDataset
+    eval_datasets: NesfDataset
     train_dataparser_outputs: DataparserOutputs
     train_pixel_sampler: Optional[PixelSampler] = None
     eval_pixel_sampler: Optional[PixelSampler] = None
@@ -110,20 +113,22 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
 
         self.train_datasets = self.create_train_datasets()
         self.eval_datasets = self.create_eval_datasets()
+        self.train_dataset = self.train_datasets
+        self.eval_datasets = self.eval_datasets
         super().__init__()
 
     def create_train_datasets(self) -> List[InputDataset]:
         """Sets up the data loaders for training"""
-        return [NesfDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
+        return [InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
                 dataparser_output in self.train_dataparser_outputs]
 
     def create_eval_datasets(self) -> List[InputDataset]:
         """Sets up the data loaders for evaluation"""
-        return [NesfDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
+        return [InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
                 dataparser_output in self.dataparser.get_dataparser_outputs(split=self.test_split)]
 
     def _get_pixel_sampler(  # pylint: disable=no-self-use
-            self, dataset: NesfDataset, *args: Any, **kwargs: Any
+            self, dataset: InputDataset, *args: Any, **kwargs: Any
     ) -> PixelSampler:
         """Infer pixel sampler to use."""
         is_equirectangular = [camera.camera_type == CameraType.EQUIRECTANGULAR.value for camera in dataset.cameras]
@@ -155,7 +160,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.train_pixel_samplers = [self._get_pixel_sampler(train_dataset, self.config.train_num_rays_per_batch) for
                                      train_dataset in self.train_datasets]
 
-        def get_camera_conf(group_name):
+        def get_camera_conf(group_name) -> CameraOptimizerConfig:
             self.config.camera_optimizer.param_group = group_name
             return deepcopy(self.config.camera_optimizer)
 
@@ -163,7 +168,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
                                                         get_dir_of_path(
                                                             dataparser_output.image_filenames[0]))
                                                         .setup(
-                                                            num_cameras=train_dataset.camera_size(), device=self.device
+                                                            num_cameras=train_dataset.cameras.shape[0], device=self.device
                                                         ) for dataparser_output, train_dataset in
             zip(self.train_dataparser_outputs, self.train_datasets)]
 
@@ -249,7 +254,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         param_groups = {}
         for train_camera_optimizer in self.train_camera_optimizers:
             camera_opt_params = list(train_camera_optimizer.parameters())
-            if train_camera_optimizer.conf.mode != "off":
+            if train_camera_optimizer.config.mode != "off":
                 assert len(camera_opt_params) > 0
                 param_groups[self.config.camera_optimizer.param_group] = camera_opt_params
             else:

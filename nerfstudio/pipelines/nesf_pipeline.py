@@ -22,20 +22,20 @@ from nerfstudio.configs import base_config as cfg
 from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManagerConfig,
 )
-from nerfstudio.data.datamanagers.nesf_datamanager import NesfDataManager
+from nerfstudio.data.datamanagers.nesf_datamanager import NesfDataManager, NesfDataManagerConfig
 from nerfstudio.engine.callbacks import TrainingCallbackAttributes, TrainingCallback
 from nerfstudio.models.base_model import Model, ModelConfig
-from nerfstudio.pipelines.base_pipeline import VanillaPipeline, Pipeline
+from nerfstudio.pipelines.base_pipeline import VanillaPipeline, Pipeline, VanillaPipelineConfig
 from nerfstudio.utils import profiler
 
 
 @dataclass
-class NesfPipelineConfig(cfg.InstantiateConfig):
+class NesfPipelineConfig(VanillaPipelineConfig):
     """Configuration for pipeline instantiation"""
 
     _target: Type = field(default_factory=lambda: NesfPipeline)
     """target class to instantiate"""
-    datamanager: NesfDataManager = NesfDataManager()
+    datamanager: NesfDataManagerConfig = NesfDataManagerConfig()
     """specifies the datamanager config"""
     model: ModelConfig = ModelConfig()
     """specifies the model config"""
@@ -76,12 +76,11 @@ class NesfPipeline(Pipeline):
         self.datamanager.to(device)
 
         # TODO(ethan): get rid of scene_bounds from the model
-        assert self.datamanager.train_dataset is not None, "Missing input dataset"
+        assert self.datamanager.train_datasets is not None, "Missing input dataset"
 
         self._model = config.model.setup(
-            scene_box=self.datamanager.train_dataset.scene_box,
-            num_train_data=len(self.datamanager.train_dataset),
-            metadata=self.datamanager.train_dataset.metadata,
+            scene_box=self.datamanager.train_datasets[0].scene_box,
+            num_train_data=-1
         )
         self.model.to(device)
 

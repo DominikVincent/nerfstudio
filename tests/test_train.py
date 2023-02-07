@@ -9,10 +9,17 @@ from pathlib import Path
 
 import pytest
 
+from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
+from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.configs.method_configs import method_configs
+from nerfstudio.data.datamanagers.nesf_datamanager import NesfDataManagerConfig
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
 from nerfstudio.data.dataparsers.minimal_dataparser import MinimalDataParserConfig
+from nerfstudio.data.dataparsers.nesf_dataparser import NesfDataParserConfig
+from nerfstudio.engine.optimizers import AdamOptimizerConfig
 from nerfstudio.engine.trainer import TrainerConfig
+from nerfstudio.models.nerfacto import NerfactoModelConfig
+from nerfstudio.pipelines.nesf_pipeline import NesfPipelineConfig
 from scripts.train import train_loop
 
 BLACKLIST = [
@@ -76,7 +83,25 @@ def test_simple_io():
     config = set_reduced_config(config)
     train_loop(local_rank=0, world_size=0, config=config)
 
+def test_nesf():
+    data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/playground/nesf_test_config.json")
+
+    OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/playground/own_loading/")
+    DATA_PATH = Path("/data/vision/polina/scratch/clintonw/datasets/kubric/klevr/0")
+
+    trainConfig = method_configs["nesf"]
+    trainConfig.data = DATA_PATH
+    trainConfig.output_dir = OUTPUT_DIR
+    trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
+
+    trainConfig.set_timestamp()
+    trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data
+    trainConfig.save_config()
+
+    trainer = trainConfig.setup(local_rank=0, world_size=1)
+    trainer.setup()
 
 if __name__ == "__main__":
-    test_train()
-    test_simple_io()
+    test_nesf()
+    # test_train()
+    # test_simple_io()
