@@ -19,7 +19,6 @@ from nerfstudio.data.datamanagers.base_datamanager import DataManager, Annotated
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
 from nerfstudio.data.datasets.base_dataset import InputDataset
-from nerfstudio.data.datasets.old_nesf_dataset import NesfDataset
 from nerfstudio.data.pixel_samplers import EquirectangularPixelSampler, PixelSampler
 from nerfstudio.data.utils.dataloaders import (
     CacheDataloader,
@@ -86,8 +85,8 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     """
 
     config: NesfDataManagerConfig
-    train_datasets: NesfDataset
-    eval_datasets: NesfDataset
+    train_datasets: List[InputDataset]
+    eval_datasets: List[InputDataset]
     train_dataparser_outputs: DataparserOutputs
     train_pixel_sampler: Optional[PixelSampler] = None
     eval_pixel_sampler: Optional[PixelSampler] = None
