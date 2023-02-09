@@ -20,6 +20,7 @@ def run_nesf():
 
     trainer = trainConfig.setup(local_rank=0, world_size=1)
     trainer.setup()
+    trainer.train()
 
 if __name__ == "__main__":
     run_nesf()

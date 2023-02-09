@@ -39,6 +39,7 @@ from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
 from nerfstudio.data.dataparsers.dnerf_dataparser import DNeRFDataParserConfig
 from nerfstudio.data.dataparsers.friends_dataparser import FriendsDataParserConfig
+from nerfstudio.data.dataparsers.nesf_dataparser import NesfDataParserConfig
 from nerfstudio.data.dataparsers.instant_ngp_dataparser import (
     InstantNGPDataParserConfig,
 )
@@ -73,6 +74,7 @@ AnnotatedDataParserUnion = tyro.conf.OmitSubcommandPrefixes[  # Omit prefixes of
             "nuscenes-data": NuScenesDataParserConfig(),
             "dnerf-data": DNeRFDataParserConfig(),
             "phototourism-data": PhototourismDataParserConfig(),
+            "nesf-data": NesfDataParserConfig(),
         },
         prefix_names=False,  # Omit prefixes in subcommands themselves.
     )
@@ -297,7 +299,7 @@ class VanillaDataManager(DataManager):  # pylint: disable=abstract-method
     config: VanillaDataManagerConfig
     train_dataset: InputDataset
     eval_dataset: InputDataset
-    train_dataparser_outputs: DataparserOutputs
+    train_dataparser_outputs: Union[DataparserOutputs, List[DataparserOutputs]]
     train_pixel_sampler: Optional[PixelSampler] = None
     eval_pixel_sampler: Optional[PixelSampler] = None
 

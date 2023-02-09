@@ -113,7 +113,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.train_datasets = self.create_train_datasets()
         self.eval_datasets = self.create_eval_datasets()
         self.train_dataset = self.train_datasets
-        self.eval_datasets = self.eval_datasets
+        self.eval_dataset = self.eval_datasets
         super().__init__()
 
     def create_train_datasets(self) -> List[InputDataset]:

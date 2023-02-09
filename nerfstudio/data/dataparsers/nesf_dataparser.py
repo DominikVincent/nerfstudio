@@ -21,19 +21,14 @@ from typing import Dict, Type
 
 from rich.console import Console
 
-from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
-from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
 from nerfstudio.data.dataparsers.base_dataparser import (
     DataParser,
     DataParserConfig,
 )
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
-from nerfstudio.engine.optimizers import AdamOptimizerConfig
-from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.models.base_model import Model
-from nerfstudio.models.nerfacto import NerfactoModelConfig
-from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 from nerfstudio.utils.io import load_from_json
+from nerfstudio.utils.writer import EVENT_WRITERS, WandbWriter, TensorboardWriter
 
 CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
@@ -112,9 +107,16 @@ def _load_model(load_dir: Path, load_step: int, data_dir: Path, config: Dict) ->
     :param config: model config. Not used yet
     :return: a loaded model.
     """
+    from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
+    from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
+    from nerfstudio.engine.trainer import TrainerConfig
+    from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
+    from nerfstudio.engine.optimizers import AdamOptimizerConfig
+    from nerfstudio.models.nerfacto import NerfactoModelConfig
+    
     train_config = TrainerConfig(
-        method_name="nerfacto",
-        experiment_name="tmp",
+        method_name="load_config",
+        experiment_name="load_experiment",
         data=data_dir,
         output_dir=Path("/tmp"),
         steps_per_eval_batch=500,
@@ -148,6 +150,15 @@ def _load_model(load_dir: Path, load_step: int, data_dir: Path, config: Dict) ->
         load_step=load_step
     )
 
+    # remove all EVENT_WRITERs which are wandb writers as they cause issues
+    wandb_writers = []
+    for writer in EVENT_WRITERS:
+        if isinstance(writer, WandbWriter):
+            wandb_writers.append(writer)
+            # remove the writer from the list
+            EVENT_WRITERS.remove(writer)
+
+    train_config.logging.local_writer.enable = False
     train_config.set_timestamp()
     train_config.pipeline.datamanager.dataparser.data = train_config.data
     train_config.save_config()
@@ -158,6 +169,15 @@ def _load_model(load_dir: Path, load_step: int, data_dir: Path, config: Dict) ->
     pipeline = trainer.pipeline
     model = pipeline.model
 
+    # remove all tensorboard writers as they are not needed
+    for writer in EVENT_WRITERS:
+        if isinstance(writer, TensorboardWriter):
+            # remove the writer from the list
+            EVENT_WRITERS.remove(writer)
+
+    # add the wandb writers back
+    for writer in wandb_writers:
+        EVENT_WRITERS.append(writer)
     return model
 
 

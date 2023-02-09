@@ -28,13 +28,14 @@ class NeuralSemanticFieldModel(Model):
         self.rgb_loss = MSELoss()
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
 
-
-        pass
+        # Query the NeRF model at the ray bundles
+        self.rgb_zeros = torch.rand((1, 3), requires_grad=True)
+        self.rgb_zeros_param = torch.nn.Parameter(self.rgb_zeros)
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         # TODO get Unet Parameters here
         # raise NotImplementedError
-        return {}
+        return {"rgb_value": [self.rgb_zeros_param]}
 
     def get_training_callbacks(
             self, training_callback_attributes: TrainingCallbackAttributes
@@ -47,12 +48,15 @@ class NeuralSemanticFieldModel(Model):
         # TODO do feature conversion + MLP
         # TODO do semantic rendering
 
-        # Query the NeRF model at the ray bundles
-        rgb_zeros = torch.zeros((ray_bundle.shape.item(), 3))
 
-        outputs = {"rgb": rgb_zeros}
+        rgb_values = self.rgb_zeros_param.repeat((ray_bundle.shape[0], 1))
 
-        raise outputs
+        outputs = {"rgb": rgb_values}
+
+        return outputs
+
+    def forward(self, ray_bundle: RayBundle, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        return self.get_outputs(ray_bundle, batch)
 
     def get_metrics_dict(self, outputs, batch):
         metrics_dict = {}

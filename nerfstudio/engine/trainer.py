@@ -31,6 +31,7 @@ from torch.cuda.amp.grad_scaler import GradScaler
 from typing_extensions import Literal
 
 from nerfstudio.configs.experiment_config import ExperimentConfig
+from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.engine.callbacks import (
     TrainingCallback,
     TrainingCallbackAttributes,
@@ -175,10 +176,19 @@ class Trainer:
     def train(self) -> None:
         """Train the model."""
         assert self.pipeline.datamanager.train_dataset is not None, "Missing DatsetInputs"
+        assert isinstance(self.pipeline.datamanager.train_dataparser_outputs, DataparserOutputs) or isinstance(self.pipeline.datamanager.train_dataparser_outputs, List)
 
-        self.pipeline.datamanager.train_dataparser_outputs.save_dataparser_transform(
-            self.base_dir / "dataparser_transforms.json"
-        )
+        if isinstance(self.pipeline.datamanager.train_dataparser_outputs, DataparserOutputs):
+            self.pipeline.datamanager.train_dataparser_outputs.save_dataparser_transform(
+                self.base_dir / "dataparser_transforms.json"
+            )
+        elif isinstance(self.pipeline.datamanager.train_dataparser_outputs, List):
+            for dataparser_outputs in self.pipeline.datamanager.train_dataparser_outputs:
+                assert isinstance(dataparser_outputs, DataparserOutputs)
+                dataparser_outputs.save_dataparser_transform(
+                    self.base_dir / "dataparser_transforms.json"
+                )
+
 
         self._init_viewer_state()
         with TimeWriter(writer, EventName.TOTAL_TRAIN_TIME):
