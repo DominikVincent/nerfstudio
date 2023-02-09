@@ -79,7 +79,7 @@ class NesfPipeline(Pipeline):
         assert self.datamanager.train_datasets is not None, "Missing input dataset"
 
         self._model = config.model.setup(
-            scene_box=self.datamanager.train_datasets[0].scene_box,
+            scene_box=self.datamanager.train_datasets.get_set(0).scene_box,
             num_train_data=-1
         )
         self.model.to(device)

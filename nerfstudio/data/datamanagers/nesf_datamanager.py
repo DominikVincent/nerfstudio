@@ -19,6 +19,7 @@ from nerfstudio.data.datamanagers.base_datamanager import DataManager, Annotated
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
 from nerfstudio.data.datasets.base_dataset import InputDataset
+from nerfstudio.data.datasets.nesf_dataset import NesfDataset
 from nerfstudio.data.pixel_samplers import EquirectangularPixelSampler, PixelSampler
 from nerfstudio.data.utils.dataloaders import (
     CacheDataloader,
@@ -118,13 +119,13 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
 
     def create_train_datasets(self) -> List[InputDataset]:
         """Sets up the data loaders for training"""
-        return [InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
-                dataparser_output in self.train_dataparser_outputs]
+        return NesfDataset([InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
+                dataparser_output in self.train_dataparser_outputs])
 
     def create_eval_datasets(self) -> List[InputDataset]:
         """Sets up the data loaders for evaluation"""
-        return [InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
-                dataparser_output in self.dataparser.get_dataparser_outputs(split=self.test_split)]
+        return NesfDataset([InputDataset(dataparser_outputs=dataparser_output, scale_factor=self.config.camera_res_scale_factor) for
+                dataparser_output in self.dataparser.get_dataparser_outputs(split=self.test_split)])
 
     def _get_pixel_sampler(  # pylint: disable=no-self-use
             self, dataset: InputDataset, *args: Any, **kwargs: Any
@@ -153,7 +154,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             pin_memory=True,
             collate_fn=self.config.collate_fn,
         ) for train_dataset in self.train_datasets]
-        self.iter_train_image_dataloaders = [iter(eval_image_dataloader) for eval_image_dataloader in
+        self.iter_train_image_dataloaders = [iter(train_image_dataloader) for train_image_dataloader in
                                              self.train_image_dataloaders]
 
         self.train_pixel_samplers = [self._get_pixel_sampler(train_dataset, self.config.train_num_rays_per_batch) for
@@ -263,7 +264,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
 
     def step_to_dataset(self, step: int) -> int:
         """Returns the dataset index for the given step."""
-        return (step // self.config.steps_per_model) % len(self.train_datasets)
+        return (step // self.config.steps_per_model) % self.train_datasets.set_count()
 
 
 def get_dir_of_path(path: Path) -> str:

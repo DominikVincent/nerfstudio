@@ -1,15 +1,17 @@
 from pathlib import Path
+import sys
 
 from nerfstudio.configs.method_configs import method_configs
 
 
-def run_nesf():
+def run_nesf(vis: str = "wandb"):
     data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/playground/nesf_test_config.json")
 
     OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/playground/own_loading/")
     DATA_PATH = Path("/data/vision/polina/scratch/clintonw/datasets/kubric/klevr/0")
 
     trainConfig = method_configs["nesf"]
+    trainConfig.vis = vis
     trainConfig.data = DATA_PATH
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
@@ -23,4 +25,5 @@ def run_nesf():
     trainer.train()
 
 if __name__ == "__main__":
-    run_nesf()
+    args = sys.argv
+    run_nesf(args[1])
