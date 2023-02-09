@@ -92,6 +92,32 @@
       "program": "scripts/train.py",
       "console": "integratedTerminal",
       "args": ["semantic_nerf"]
-    }
+    },
+    {
+      "name": "Python: Current File",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+  },
+  {
+      "name": "Try NeSF",
+      "type": "python",
+      "request": "launch",
+      "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/tests/try_nesf.py",
+      "args": "viewer",
+      "console": "integratedTerminal",
+      "justMyCode": false
+  },
+  {
+      "name": "nerfacto",
+      "type": "python",
+      "request": "launch",
+      "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/train.py",
+      "args": ["nerfacto", "--data", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nerfstudio/poster", "--vis", "wandb"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+  }
   ]
 }
