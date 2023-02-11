@@ -18,18 +18,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Type
-import torch
 
+import torch
 from rich.console import Console
 
 from nerfstudio.data.dataparsers.base_dataparser import (
     DataParser,
     DataParserConfig,
+    DataparserOutputs,
 )
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
 from nerfstudio.models.base_model import Model
 from nerfstudio.utils.io import load_from_json
-from nerfstudio.utils.writer import EVENT_WRITERS, WandbWriter, TensorboardWriter
+from nerfstudio.utils.writer import EVENT_WRITERS, TensorboardWriter, WandbWriter
 
 CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
@@ -92,19 +93,17 @@ class NesfDataParserConfig(DataParserConfig):
     ...]}"""
 
 
-def _load_model(load_dir, load_step, data_dir: Path, config: Dict, local_rank: int = 0, world_size: int=1) -> Model:
-    from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
-    from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
-    from nerfstudio.engine.trainer import TrainerConfig
+def _load_model(load_dir, load_step, data_dir: Path, config: Dict, local_rank: int = 0, world_size: int = 1) -> Model:
     from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
+    from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
     from nerfstudio.engine.optimizers import AdamOptimizerConfig
+    from nerfstudio.engine.trainer import TrainerConfig
     from nerfstudio.models.nerfacto import NerfactoModelConfig
-    
-    pipeline=VanillaPipelineConfig(
+    from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
+
+    pipeline = VanillaPipelineConfig(
         datamanager=VanillaDataManagerConfig(
-            dataparser=NerfstudioDataParserConfig(
-                data=data_dir
-                ),
+            dataparser=NerfstudioDataParserConfig(data=data_dir),
             train_num_rays_per_batch=4096,
             eval_num_rays_per_batch=4096,
             camera_optimizer=CameraOptimizerConfig(
@@ -113,11 +112,9 @@ def _load_model(load_dir, load_step, data_dir: Path, config: Dict, local_rank: i
         ),
         model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
     )
-    
+
     device = "cpu" if world_size == 0 else f"cuda:{local_rank}"
-    pipeline = pipeline.setup(
-            device=device, test_mode="inference", world_size=world_size, local_rank=local_rank
-    )
+    pipeline = pipeline.setup(device=device, test_mode="inference", world_size=world_size, local_rank=local_rank)
 
     """Helper function to load pipeline and optimizer from prespecified checkpoint"""
     if load_dir is not None:
@@ -135,13 +132,14 @@ def _load_model(load_dir, load_step, data_dir: Path, config: Dict, local_rank: i
         print("No checkpoints to load, training from scratch")
     return pipeline.model
 
+
 @dataclass
 class Nesf(DataParser):
     """Nerfstudio DatasetParser"""
 
     config: NesfDataParserConfig
 
-    def _generate_dataparser_outputs(self, split="train"):
+    def _generate_dataparser_outputs(self, split="train") -> List[DataparserOutputs]:
         # pylint: disable=too-many-statements
 
         if self.config.data_config.suffix == ".json":
@@ -157,20 +155,17 @@ class Nesf(DataParser):
             nerfstudio.config.data = Path(nerfstudio.config.data)
 
             dataparser_output = nerfstudio.get_dataparser_outputs()
-            models.append({
-                "load_dir": conf["load_dir"],
-                "load_step": conf["load_step"],
-                "data_parser": nerfstudio
-            })
+            models.append({"load_dir": conf["load_dir"], "load_step": conf["load_step"], "data_parser": nerfstudio})
             # TODO maybe load model
 
             # parent path of file
             data_path = dataparser_output.image_filenames[0].parent.resolve()
-            model = _load_model(load_dir=Path(conf["load_dir"]),
-                                load_step=conf["load_step"],
-                                data_dir=data_path,
-                                config=conf["model_config"]
-                                )
+            model = _load_model(
+                load_dir=Path(conf["load_dir"]),
+                load_step=conf["load_step"],
+                data_dir=data_path,
+                config=conf["model_config"],
+            )
 
             # TODO update dataparser_output.metadata with model
             dataparser_output.metadata.update({"model": model})

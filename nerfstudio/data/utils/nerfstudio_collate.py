@@ -26,6 +26,7 @@ import torch.utils.data
 from torch._six import string_classes
 
 from nerfstudio.cameras.cameras import Cameras
+from nerfstudio.models.base_model import Model
 
 # pylint: disable=implicit-str-concat
 NERFSTUDIO_COLLATE_ERR_MSG_FORMAT = (
@@ -190,6 +191,8 @@ def nerfstudio_collate(
                 dim=0,
             ),
         )
+    elif isinstance(elem, Model):
+        return batch
 
     for type_key in extra_mappings:
         if isinstance(elem, type_key):

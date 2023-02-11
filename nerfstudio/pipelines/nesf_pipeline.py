@@ -19,13 +19,18 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from typing_extensions import Literal
 
 from nerfstudio.configs import base_config as cfg
-from nerfstudio.data.datamanagers.base_datamanager import (
-    VanillaDataManagerConfig,
+from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
+from nerfstudio.data.datamanagers.nesf_datamanager import (
+    NesfDataManager,
+    NesfDataManagerConfig,
 )
-from nerfstudio.data.datamanagers.nesf_datamanager import NesfDataManager, NesfDataManagerConfig
-from nerfstudio.engine.callbacks import TrainingCallbackAttributes, TrainingCallback
+from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
 from nerfstudio.models.base_model import Model, ModelConfig
-from nerfstudio.pipelines.base_pipeline import VanillaPipeline, Pipeline, VanillaPipelineConfig
+from nerfstudio.pipelines.base_pipeline import (
+    Pipeline,
+    VanillaPipeline,
+    VanillaPipelineConfig,
+)
 from nerfstudio.utils import profiler
 
 
@@ -44,27 +49,27 @@ class NesfPipelineConfig(VanillaPipelineConfig):
 class NesfPipeline(Pipeline):
     """The pipeline class for the nesf nerf setup of multiple cameras for one or a few scenes.
 
-            config: configuration to instantiate pipeline
-            device: location to place model and data
-            test_mode:
-                'val': loads train/val datasets into memory
-                'test': loads train/test dataset into memory
-                'inference': does not load any dataset into memory
-            world_size: total number of machines available
-            local_rank: rank of current machine
+        config: configuration to instantiate pipeline
+        device: location to place model and data
+        test_mode:
+            'val': loads train/val datasets into memory
+            'test': loads train/test dataset into memory
+            'inference': does not load any dataset into memory
+        world_size: total number of machines available
+        local_rank: rank of current machine
 
-        Attributes:
-            datamanager: The data manager that will be used
-            model: The model that will be used
-        """
+    Attributes:
+        datamanager: The data manager that will be used
+        model: The model that will be used
+    """
 
     def __init__(
-            self,
-            config: NesfPipelineConfig,
-            device: str,
-            test_mode: Literal["test", "val", "inference"] = "val",
-            world_size: int = 1,
-            local_rank: int = 0,
+        self,
+        config: NesfPipelineConfig,
+        device: str,
+        test_mode: Literal["test", "val", "inference"] = "val",
+        world_size: int = 1,
+        local_rank: int = 0,
     ):
         super().__init__()
         self.config = config
@@ -73,14 +78,14 @@ class NesfPipeline(Pipeline):
         self.datamanager: NesfDataManager = config.datamanager.setup(
             device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
         )
+        print("### NesfPipeline: datamanager setup done.")
         self.datamanager.to(device)
 
         # TODO(ethan): get rid of scene_bounds from the model
         assert self.datamanager.train_datasets is not None, "Missing input dataset"
 
         self._model = config.model.setup(
-            scene_box=self.datamanager.train_datasets.get_set(0).scene_box,
-            num_train_data=-1
+            scene_box=self.datamanager.train_datasets.get_set(0).scene_box, num_train_data=-1
         )
         self.model.to(device)
 
@@ -165,13 +170,18 @@ class NesfPipeline(Pipeline):
         """
         self.eval()
         metrics_dict_list = []
-        num_images = sum( [len(fixed_indices_eval_dataloader) for fixed_indices_eval_dataloader in self.datamanager.fixed_indices_eval_dataloaders])
+        num_images = sum(
+            [
+                len(fixed_indices_eval_dataloader)
+                for fixed_indices_eval_dataloader in self.datamanager.fixed_indices_eval_dataloaders
+            ]
+        )
         with Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                MofNCompleteColumn(),
-                transient=True,
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeElapsedColumn(),
+            MofNCompleteColumn(),
+            transient=True,
         ) as progress:
             task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
             for fixed_indices_eval_dataloader in self.datamanager.fixed_indices_eval_dataloaders:

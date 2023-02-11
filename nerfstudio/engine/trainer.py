@@ -38,6 +38,7 @@ from nerfstudio.engine.callbacks import (
     TrainingCallbackLocation,
 )
 from nerfstudio.engine.optimizers import Optimizers
+from nerfstudio.models.nesf import NeuralSemanticFieldModel
 from nerfstudio.pipelines.base_pipeline import VanillaPipeline
 from nerfstudio.utils import profiler, writer
 from nerfstudio.utils.decorators import (
@@ -156,6 +157,9 @@ class Trainer:
             )
         )
 
+        if isinstance(self.pipeline.model, NeuralSemanticFieldModel):
+            self.pipeline.model.set_model(self.pipeline.datamanager.train_dataset.current_set.model)
+
     def setup_optimizers(self) -> Optimizers:
         """Helper to set up the optimizers
 
@@ -176,7 +180,9 @@ class Trainer:
     def train(self) -> None:
         """Train the model."""
         assert self.pipeline.datamanager.train_dataset is not None, "Missing DatsetInputs"
-        assert isinstance(self.pipeline.datamanager.train_dataparser_outputs, DataparserOutputs) or isinstance(self.pipeline.datamanager.train_dataparser_outputs, List)
+        assert isinstance(self.pipeline.datamanager.train_dataparser_outputs, DataparserOutputs) or isinstance(
+            self.pipeline.datamanager.train_dataparser_outputs, List
+        )
 
         if isinstance(self.pipeline.datamanager.train_dataparser_outputs, DataparserOutputs):
             self.pipeline.datamanager.train_dataparser_outputs.save_dataparser_transform(
@@ -185,10 +191,7 @@ class Trainer:
         elif isinstance(self.pipeline.datamanager.train_dataparser_outputs, List):
             for dataparser_outputs in self.pipeline.datamanager.train_dataparser_outputs:
                 assert isinstance(dataparser_outputs, DataparserOutputs)
-                dataparser_outputs.save_dataparser_transform(
-                    self.base_dir / "dataparser_transforms.json"
-                )
-
+                dataparser_outputs.save_dataparser_transform(self.base_dir / "dataparser_transforms.json")
 
         self._init_viewer_state()
         with TimeWriter(writer, EventName.TOTAL_TRAIN_TIME):
