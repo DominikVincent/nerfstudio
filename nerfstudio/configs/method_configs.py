@@ -71,7 +71,7 @@ descriptions = {
     "tensorf": "tensorf",
     "dnerf": "Dynamic-NeRF model. (slow)",
     "phototourism": "Uses the Phototourism data.",
-    "nesf": "Neural Semantic Field model. prototype"
+    "nesf": "Neural Semantic Field model. prototype",
 }
 
 
@@ -356,8 +356,8 @@ method_configs["nesf"] = TrainerConfig(
             "scheduler": None,
         },
     },
-    viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
-    vis="wandb"
+    viewer=ViewerConfig(num_rays_per_chunk=1 << 15, websocket_port=7008),
+    vis="wandb",
 )
 
 

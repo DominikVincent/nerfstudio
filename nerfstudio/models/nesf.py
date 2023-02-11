@@ -144,3 +144,5 @@ class NeuralSemanticFieldModel(Model):
         else:
             model = batch["model"]
         return model
+
+
