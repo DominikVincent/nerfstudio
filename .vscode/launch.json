@@ -106,7 +106,7 @@
       "type": "python",
       "request": "launch",
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/tests/try_nesf.py",
-      "args": "viewer",
+      "args": "wandb",
       "console": "integratedTerminal",
       "env": {
         "CUDA_LAUNCH_BLOCKING": "1"

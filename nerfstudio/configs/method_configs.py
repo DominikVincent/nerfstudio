@@ -338,8 +338,8 @@ method_configs["nesf"] = TrainerConfig(
     pipeline=NesfPipelineConfig(
         datamanager=NesfDataManagerConfig(
             dataparser=NesfDataParserConfig(),
-            train_num_rays_per_batch=4096,
-            eval_num_rays_per_batch=4096,
+            train_num_rays_per_batch=256,
+            eval_num_rays_per_batch=256,
             camera_optimizer=CameraOptimizerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
@@ -347,11 +347,11 @@ method_configs["nesf"] = TrainerConfig(
         model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=1 << 15),
     ),
     optimizers={
-        "proposal_networks": {
+        "feature_network": {
             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
             "scheduler": None,
         },
-        "rgb_value": {
+        "feature_transformer": {
             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
             "scheduler": None,
         },
