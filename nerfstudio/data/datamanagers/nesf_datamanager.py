@@ -33,6 +33,7 @@ from nerfstudio.data.utils.dataloaders import (
 )
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
 from nerfstudio.model_components.ray_generators import RayGenerator
+from nerfstudio.utils import profiler
 
 CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
@@ -204,7 +205,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         CONSOLE.print("Setting up evaluation dataset...")
         self.eval_image_dataloaders = [
             CacheDataloader(
-                self.eval_datasets,
+                eval_dataset,
                 num_images_to_sample_from=self.config.eval_num_images_to_sample_from,
                 num_times_to_repeat_images=self.config.eval_num_times_to_repeat_images,
                 device=self.device,
@@ -212,6 +213,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
                 pin_memory=True,
                 collate_fn=self.config.collate_fn,
             )
+            for eval_dataset in self.eval_datasets
         ]
 
         self.iter_eval_image_dataloaders = [
@@ -251,6 +253,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             for eval_dataset in self.eval_datasets
         ]
 
+    @profiler.time_function
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1

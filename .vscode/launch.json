@@ -109,7 +109,7 @@
       "args": "wandb",
       "console": "integratedTerminal",
       "env": {
-        "CUDA_LAUNCH_BLOCKING": "1"
+        // "CUDA_LAUNCH_BLOCKING": "0"
       },
       "justMyCode": false
   },

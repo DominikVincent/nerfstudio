@@ -2,8 +2,10 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
+import lovely_tensors as lt
 import torch
 import torchvision
+from rich.console import Console
 from torch import Tensor, nn
 from torch.nn import Parameter
 from torchmetrics import PeakSignalNoiseRatio
@@ -18,12 +20,17 @@ from nerfstudio.model_components.losses import MSELoss
 from nerfstudio.model_components.renderers import RGBRenderer
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.models.nerfacto import NerfactoModel
+from nerfstudio.utils import profiler
 
 try:
     import tinycudann as tcnn
 except ImportError:
     # tinycudann module doesn't exist
     pass
+
+lt.monkey_patch()
+
+CONSOLE = Console(width=120)
 
 
 @dataclass
@@ -58,7 +65,8 @@ class NeuralSemanticFieldModel(Model):
         self.fallback_model: Optional[Model] = None
 
         # Feature extractor
-        self.feature_model = FeatureGenerator()
+        # self.feature_model = FeatureGenerator()
+        self.feature_model = FeatureGeneratorTorch()
 
         # Feature Transformer
         self.feature_transformer = UNet()
@@ -66,12 +74,19 @@ class NeuralSemanticFieldModel(Model):
         # Renderer
         self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
 
+        # count parameters
+        total_params = sum(p.numel() for p in self.parameters())
+        CONSOLE.print("The number of NeSF parameters is: ", total_params)
+
+        return
+
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         return {
             "feature_network": list(self.feature_model.parameters()),
             "feature_transformer": list(self.feature_transformer.parameters()),
         }
 
+    @profiler.time_function
     def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None):
         # TODO implement UNET
         # TODO query NeRF
@@ -81,9 +96,21 @@ class NeuralSemanticFieldModel(Model):
 
         outs, weights = self.feature_model(ray_bundle, model)
 
-        outs = self.feature_transformer(outs)
+        # assert outs is not nan or not inf
+        assert not torch.isnan(outs).any()
+        assert not torch.isinf(outs).any()
 
-        rgb = self.renderer_rgb(rgb=outs[FieldHeadNames.RGB], weights=weights)
+        # cast outs to fp32
+        # outs = outs.float()
+
+        # assert outs is not nan or not inf
+        assert not torch.isnan(outs).any()
+        assert not torch.isinf(outs).any()
+
+        # outs = self.feature_transformer(outs)
+
+        # rgb = self.renderer_rgb(rgb=outs[FieldHeadNames.RGB], weights=weights)
+        rgb = self.renderer_rgb(rgb=outs, weights=weights)
 
         outputs = {"rgb": rgb}
 
@@ -160,6 +187,7 @@ class NeuralSemanticFieldModel(Model):
         """
         self.fallback_model = model
 
+    @profiler.time_function
     def get_model(self, batch: Union[Dict[str, Any], None]) -> Model:
         """Gets the fallback model for inference of the Neural Semantic Field.
         It is a nerf model which can be queried to obtain points.
@@ -172,7 +200,59 @@ class NeuralSemanticFieldModel(Model):
             model = self.fallback_model
         else:
             model = batch["model"]
+        model.eval()
         return model
+
+
+class FeatureGeneratorTorch(nn.Module):
+    """Takes in a batch of b Ray bundles, samples s points along the ray. Then it outputs n x m x f matrix.
+    Each row corresponds to one feature of a sampled point of the ray.
+
+    Args:
+        nn (_type_): _description_
+    """
+
+    def __init__(self, positional_encoding_dim=128, field_output_encoding=128):
+        super().__init__()
+
+        self.linear = nn.Sequential(
+            nn.Linear(3, 128),
+            nn.ReLU(),
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 3),
+            nn.Sigmoid(),
+        )
+        # self.useless_parameter = nn.Parameter(torch.rand(1, 3))
+
+    def forward(self, ray_bundle: RayBundle, model: Model):
+        model.eval()
+        if isinstance(model, NerfactoModel):
+            model = cast(NerfactoModel, model)
+            with torch.no_grad():
+                if model.collider is not None:
+                    ray_bundle = model.collider(ray_bundle)
+
+                ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
+                field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
+                weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
+        else:
+            raise NotImplementedError("Only NerfactoModel is supported for now")
+
+        rgb = field_outputs[FieldHeadNames.RGB]
+        density = field_outputs[FieldHeadNames.DENSITY]
+
+        features = self.linear(rgb.view(-1, 3))
+
+        features = features.view(ray_samples.shape[0], ray_samples.shape[1], -1)
+        # add_term = + 0.000001 * torch.sigmoid(self.useless_parameter.repeat(rgb.shape[0], rgb.shape[1], 1))
+        # features = rgb + add_term
+        out = features
+        return out, weights
 
 
 class FeatureGenerator(nn.Module):
@@ -224,20 +304,25 @@ class FeatureGenerator(nn.Module):
         )
 
     def forward(self, ray_bundle: RayBundle, model: Model) -> Tuple[Tensor, TensorType[..., "num_samples", 1]]:
-
+        model.eval()
         if isinstance(model, NerfactoModel):
             model = cast(NerfactoModel, model)
-            if model.collider is not None:
-                ray_bundle = model.collider(ray_bundle)
+            with torch.no_grad():
+                if model.collider is not None:
+                    ray_bundle = model.collider(ray_bundle)
 
-            ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
-            field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
-            weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
+                ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
+                field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
+                weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
         else:
             raise NotImplementedError("Only NerfactoModel is supported for now")
 
         # normalize field densitities:
         densities = field_outputs[FieldHeadNames.DENSITY]
+        # set infinite values to highest finite value
+        densities[torch.isinf(densities)] = torch.max(densities[~torch.isinf(densities)])
+        densities = torch.log(densities + 1.0)
+
         mean_vals = torch.mean(densities, dim=1, keepdim=True)
         std_vals = torch.std(densities, dim=1, keepdim=True)
 
@@ -246,6 +331,10 @@ class FeatureGenerator(nn.Module):
 
         field_outputs_stacked = torch.cat((field_outputs[FieldHeadNames.RGB], normalized_densities), dim=-1)
         field_features = self.mlp_field_output(field_outputs_stacked.view(-1, 4))
+
+        # assert that field_features are not nan or inf
+        assert torch.isnan(field_features).sum() == 0
+        assert torch.isinf(field_features).sum() == 0
 
         # Positional encoding of the Frustums
         positions_frustums = ray_samples.frustums.get_positions()
@@ -259,6 +348,10 @@ class FeatureGenerator(nn.Module):
         pos_encode = torch.cat([d, positions_frustums_flat], dim=1)
 
         pos_features = self.mlp_merged_pos_encoding(pos_encode)
+
+        # assert that pos_features are not nan or inf
+        assert torch.isnan(pos_features).sum() == 0
+        assert torch.isinf(pos_features).sum() == 0
 
         features = torch.cat([pos_features, field_features], dim=1)
         features = features.view(ray_samples.shape[0], ray_samples.shape[1], -1)
@@ -278,7 +371,12 @@ class Block(nn.Module):
         )
 
     def forward(self, x):
-        return self.double_conv(x)
+        assert x.dtype == torch.float32
+        y = self.double_conv(x)
+        assert y.dtype == torch.float32
+        assert not torch.isnan(y).any()
+
+        return y
 
 
 class Encoder(nn.Module):
@@ -287,12 +385,17 @@ class Encoder(nn.Module):
         self.enc_blocks = nn.ModuleList([Block(chs[i], chs[i + 1]) for i in range(len(chs) - 1)])
         self.pool = nn.MaxPool2d(2)
 
-    def forward(self, x):
+    def forward(self, x) -> List[torch.Tensor]:
         ftrs = []
+        assert x.dtype == torch.float32
         for block in self.enc_blocks:
             x = block(x)
+            assert x.dtype == torch.float32
+
             ftrs.append(x)
             x = self.pool(x)
+            assert x.dtype == torch.float32
+
         return ftrs
 
 
@@ -303,17 +406,26 @@ class Decoder(nn.Module):
         self.upconvs = nn.ModuleList([nn.ConvTranspose2d(chs[i], chs[i + 1], 2, 2) for i in range(len(chs) - 1)])
         self.dec_blocks = nn.ModuleList([Block(chs[i], chs[i + 1]) for i in range(len(chs) - 1)])
 
-    def forward(self, x, encoder_features):
+    def forward(self, x: torch.Tensor, encoder_features: List[torch.Tensor]):
+        assert x.dtype == torch.float32
+
         for i in range(len(self.chs) - 1):
             x = self.upconvs[i](x)
+            assert x.dtype == torch.float32
+
             enc_ftrs = self.crop(encoder_features[i], x)
             x = torch.cat([x, enc_ftrs], dim=1)
+            assert x.dtype == torch.float32
+
             x = self.dec_blocks[i](x)
+            assert x.dtype == torch.float32
+
         return x
 
     def crop(self, enc_ftrs, x):
         _, _, H, W = x.shape
         enc_ftrs = torchvision.transforms.CenterCrop([H, W])(enc_ftrs)
+        assert enc_ftrs.dtype == torch.float32
         return enc_ftrs
 
 
@@ -323,17 +435,42 @@ class UNet(nn.Module):
         self.encoder = Encoder(enc_chs)
         self.decoder = Decoder(dec_chs)
         self.head = nn.Conv2d(dec_chs[-1], num_class, 1)
+        self.density_activation = nn.ReLU()
 
     def forward(self, x):
+        assert x.dtype == torch.float32
         x = x.unsqueeze(1)
+        assert x.dtype == torch.float32
+
         enc_ftrs = self.encoder(x)
+
+        for enc_ftr in enc_ftrs:
+            assert not torch.isnan(enc_ftr).any()
+            assert not torch.isnan(enc_ftr).any()
+            assert enc_ftr.dtype == torch.float32
+
         out = self.decoder(enc_ftrs[::-1][0], enc_ftrs[::-1][1:])
+
+        assert out.dtype == torch.float32
+        assert not torch.isnan(out).any()
+        assert not torch.isnan(out).any()
+
         out = self.head(out)
+
+        assert out.dtype == torch.float32
+        assert not torch.isnan(out).any()
+        assert not torch.isnan(out).any()
+
         # reduce the channel dimension
         out = torch.mean(out, dim=-1)
 
-        # output in the correct format
         output = {}
-        output[FieldHeadNames.RGB] = out[:, :3, :].squeeze(1).permute(0, 2, 1)
-        output[FieldHeadNames.DENSITY] = out[:, 3:, :].permute(0, 2, 1)
+        output[FieldHeadNames.RGB] = torch.sigmoid(out[:, :3, :].squeeze(1).permute(0, 2, 1))
+        output[FieldHeadNames.DENSITY] = self.density_activation(out[:, 3:, :].permute(0, 2, 1))
+
+        # assert that output does not contain nan and inf values
+        assert not torch.isnan(output[FieldHeadNames.RGB]).any()
+        assert not torch.isnan(output[FieldHeadNames.DENSITY]).any()
+        assert not torch.isinf(output[FieldHeadNames.RGB]).any()
+        assert not torch.isinf(output[FieldHeadNames.DENSITY]).any()
         return output
