@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Type
 
 import torch
 import torch.distributed as dist
+from rich.console import Console
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -32,6 +33,8 @@ from nerfstudio.pipelines.base_pipeline import (
     VanillaPipelineConfig,
 )
 from nerfstudio.utils import profiler
+
+CONSOLE = Console(width=120)
 
 
 @dataclass
@@ -152,6 +155,7 @@ class NesfPipeline(Pipeline):
         """
         self.eval()
         image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
+        CONSOLE.print(camera_ray_bundle.shape)
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
         assert "image_idx" not in metrics_dict

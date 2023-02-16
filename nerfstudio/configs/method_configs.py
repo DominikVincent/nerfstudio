@@ -344,7 +344,7 @@ method_configs["nesf"] = TrainerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
         ),
-        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=1 << 15),
+        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=1 << 13),
     ),
     optimizers={
         "feature_network": {

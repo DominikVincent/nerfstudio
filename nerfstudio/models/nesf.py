@@ -100,17 +100,14 @@ class NeuralSemanticFieldModel(Model):
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
 
-        # cast outs to fp32
-        # outs = outs.float()
-
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
 
-        # outs = self.feature_transformer(outs)
+        outs = self.feature_transformer(outs)
 
-        # rgb = self.renderer_rgb(rgb=outs[FieldHeadNames.RGB], weights=weights)
-        rgb = self.renderer_rgb(rgb=outs, weights=weights)
+        rgb = self.renderer_rgb(rgb=outs[FieldHeadNames.RGB], weights=weights)
+        # rgb = self.renderer_rgb(rgb=outs, weights=weights)
 
         outputs = {"rgb": rgb}
 
@@ -218,13 +215,7 @@ class FeatureGeneratorTorch(nn.Module):
         self.linear = nn.Sequential(
             nn.Linear(3, 128),
             nn.ReLU(),
-            nn.Linear(128, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Linear(128, 3),
+            nn.Linear(128, 16),
             nn.Sigmoid(),
         )
         # self.useless_parameter = nn.Parameter(torch.rand(1, 3))
@@ -247,9 +238,8 @@ class FeatureGeneratorTorch(nn.Module):
         density = field_outputs[FieldHeadNames.DENSITY]
 
         features = self.linear(rgb.view(-1, 3))
-
         features = features.view(ray_samples.shape[0], ray_samples.shape[1], -1)
-        # add_term = + 0.000001 * torch.sigmoid(self.useless_parameter.repeat(rgb.shape[0], rgb.shape[1], 1))
+        # add_term = +0.000001 * torch.sigmoid(self.useless_parameter.repeat(rgb.shape[0], rgb.shape[1], 1))
         # features = rgb + add_term
         out = features
         return out, weights
@@ -430,7 +420,7 @@ class Decoder(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, enc_chs=(1, 16, 32, 64), dec_chs=(64, 32, 16), num_class=4):
+    def __init__(self, enc_chs=(1, 16, 32), dec_chs=(32, 16), num_class=4):
         super().__init__()
         self.encoder = Encoder(enc_chs)
         self.decoder = Decoder(dec_chs)
