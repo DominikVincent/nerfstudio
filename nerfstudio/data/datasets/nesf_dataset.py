@@ -1,9 +1,11 @@
 from typing import Dict, List
 
 from torch.utils.data import Dataset
+import torch
 
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.datasets.base_dataset import InputDataset
+from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
 
 
 class NesfItemDataset(InputDataset):
@@ -18,9 +20,19 @@ class NesfItemDataset(InputDataset):
         super().__init__(dataparser_outputs, scale_factor)
         assert "model" in dataparser_outputs.metadata
         self.model = dataparser_outputs.metadata["model"]
+        self.semantics = dataparser_outputs.metadata["semantics"]
+        self.mask_indices = torch.tensor(
+            [self.semantics.classes.index(mask_class) for mask_class in self.semantics.mask_classes]
+        ).view(1, 1, -1)
 
     def get_metadata(self, data: Dict) -> Dict:
-        return {"model": self.model}
+        filepath = self.semantics.filenames[data["image_idx"]]
+        semantic_label, mask = get_semantics_and_mask_tensors_from_path(
+            filepath=filepath, mask_indices=self.mask_indices, scale_factor=self.scale_factor
+        )
+        if "mask" in data.keys():
+            mask = mask & data["mask"]
+        return {"model": self.model, "semantics": semantic_label}
 
 
 class NesfDataset(Dataset):

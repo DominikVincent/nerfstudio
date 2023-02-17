@@ -13,11 +13,12 @@ from torchtyping import TensorType
 from typing_extensions import Literal
 
 from nerfstudio.cameras.rays import RayBundle
+from nerfstudio.data.dataparsers.base_dataparser import Semantics
 from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.nerfacto_field import get_normalized_directions
 from nerfstudio.model_components.losses import MSELoss
-from nerfstudio.model_components.renderers import RGBRenderer
+from nerfstudio.model_components.renderers import RGBRenderer, SemanticRenderer
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.models.nerfacto import NerfactoModel
 from nerfstudio.utils import profiler
@@ -47,6 +48,11 @@ class NeuralSemanticFieldModel(Model):
 
     config: NeuralSemanticFieldConfig
 
+    def __init__(self, config: NeuralSemanticFieldConfig, metadata: Dict, **kwargs) -> None:
+        assert "semantics" in metadata.keys() and isinstance(metadata["semantics"], Semantics)
+        self.semantics = metadata["semantics"]
+        super().__init__(config=config, **kwargs)
+
     def get_training_callbacks(
         self, training_callback_attributes: TrainingCallbackAttributes
     ) -> List[TrainingCallback]:
@@ -69,10 +75,11 @@ class NeuralSemanticFieldModel(Model):
         self.feature_model = FeatureGeneratorTorch()
 
         # Feature Transformer
-        self.feature_transformer = UNet()
+        self.feature_transformer = UNet(num_class=len(self.semantics.classes))
 
         # Renderer
         self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
+        self.renderer_semantics = SemanticRenderer()
 
         # count parameters
         total_params = sum(p.numel() for p in self.parameters())
@@ -104,12 +111,23 @@ class NeuralSemanticFieldModel(Model):
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
 
-        outs = self.feature_transformer(outs)
+        field_outputs = self.feature_transformer(outs)
 
-        rgb = self.renderer_rgb(rgb=outs[FieldHeadNames.RGB], weights=weights)
-        # rgb = self.renderer_rgb(rgb=outs, weights=weights)
+        # rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+        semantics = self.renderer_semantics(
+            field_outputs[FieldHeadNames.SEMANTICS], weights=weights
+        )
 
-        outputs = {"rgb": rgb}
+        # semantics colormaps
+        semantic_labels = torch.argmax(torch.nn.functional.softmax(semantics, dim=-1), dim=-1)
+        semantics_colormap = self.semantics.colors[semantic_labels]
+
+        outputs = {
+            # "rgb": rgb,
+            "rgb": semantics_colormap,
+            "semantics": semantics,
+            "semantics_colormap": semantics_colormap,
+        }
 
         return outputs
 
@@ -118,14 +136,19 @@ class NeuralSemanticFieldModel(Model):
 
     def get_metrics_dict(self, outputs, batch: Dict[str, Any]):
         metrics_dict = {}
-        image = batch["image"].to(self.device)
-        metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
+        # image = batch["image"].to(self.device)
+        # metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch: Dict[str, Any], metrics_dict=None):
-        loss_dict = {}
-        image = batch["image"].to(self.device)
-        loss_dict["rgb_loss"] = self.rgb_loss(image, outputs["rgb"])
+        # image = batch["image"].to(self.device)
+
+        loss_dict = {
+            "semantics_loss": self.cross_entropy_loss(outputs["semantics"], batch["semantics"][..., 0].long()),
+            # "rgb_loss": self.rgb_loss(image, outputs["rgb"])
+
+        }
+
         return loss_dict
 
     @torch.no_grad()
@@ -168,10 +191,14 @@ class NeuralSemanticFieldModel(Model):
         image = torch.moveaxis(image, -1, 0)[None, ...]
         rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
 
-        images_dict = {"img": combined_rgb}
+        images_dict = {
+            "img": combined_rgb,
+            "semantics_colormap": outputs["semantics_colormap"],
+        }
 
         psnr = self.psnr(image, rgb)
-        metrics_dict = {"psnr": float(psnr.item())}
+        # metrics_dict = {"psnr": float(psnr.item())}
+        metrics_dict = {}
 
         return metrics_dict, images_dict
 
