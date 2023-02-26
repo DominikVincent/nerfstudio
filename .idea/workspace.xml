@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AnalysisUIOptions">
+    <option name="ANALYZE_INJECTED_CODE" value="false" />
+    <option name="SCOPE_TYPE" value="3" />
+  </component>
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="f47e01c7-f661-4cd9-b0aa-534b944f5573" name="Changes" comment="nrnesf cahnges">
+      <change beforePath="$PROJECT_DIR$/nerfstudio/configs/method_configs.py" beforeDir="false" afterPath="$PROJECT_DIR$/nerfstudio/configs/method_configs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/nerfstudio/data/datamanagers/base_datamanager.py" beforeDir="false" afterPath="$PROJECT_DIR$/nerfstudio/data/datamanagers/base_datamanager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/nerfstudio/data/datamanagers/nesf_datamanager.py" beforeDir="false" afterPath="$PROJECT_DIR$/nerfstudio/data/datamanagers/nesf_datamanager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/nerfstudio/data/dataparsers/nesf_dataparser.py" beforeDir="false" afterPath="$PROJECT_DIR$/nerfstudio/data/dataparsers/nesf_dataparser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/nerfstudio/engine/trainer.py" beforeDir="false" afterPath="$PROJECT_DIR$/nerfstudio/engine/trainer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/nerfstudio/models/nesf.py" beforeDir="false" afterPath="$PROJECT_DIR$/nerfstudio/models/nesf.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/try_nesf.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/try_nesf.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="FlaskConsoleOptions" custom-start-script="import sys&#10;sys.path.extend([WORKING_DIR_AND_PYTHON_PATHS])&#10;from flask.cli import ScriptInfo&#10;locals().update(ScriptInfo(create_app=None).load_app().make_shell_context())&#10;print(&quot;Python %s on %s\nApp: %s [%s]\nInstance: %s&quot; % (sys.version, sys.platform, app.import_name, app.env, app.instance_path))">
+    <envs>
+      <env key="FLASK_APP" value="app" />
+    </envs>
+    <option name="myCustomStartScript" value="import sys&#10;sys.path.extend([WORKING_DIR_AND_PYTHON_PATHS])&#10;from flask.cli import ScriptInfo&#10;locals().update(ScriptInfo(create_app=None).load_app().make_shell_context())&#10;print(&quot;Python %s on %s\nApp: %s [%s]\nInstance: %s&quot; % (sys.version, sys.platform, app.import_name, app.env, app.instance_path))" />
+    <option name="myEnvs">
+      <map>
+        <entry key="FLASK_APP" value="app" />
+      </map>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/../../../conda/envs/nerfstudio/lib/python3.8/concurrent/futures/thread.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/../../../conda/envs/nerfstudio/lib/python3.8/site-packages/torch/nn/modules/module.py" root0="SKIP_INSPECTION" />
+    <setting file="file://$PROJECT_DIR$/../../../conda/envs/nerfstudio/lib/python3.8/site-packages/wandb/sdk/wandb_config.py" root0="SKIP_INSPECTION" />
+  </component>
+  <component name="MarkdownSettingsMigration">
+    <option name="stateVersion" value="1" />
+  </component>
+  <component name="ProjectId" id="2Kx2jVe50A8IeuGIGR5PKOiaqjQ" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/data/vision/polina/projects/wmh/dhollidt/conda/bin/conda&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;yarn&quot;,
+    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RdControllerToolWindowsLayoutState" isNewUi="false">
+    <layout>
+      <window_info id="Commit_Guest" />
+      <window_info id="Space Code Reviews" order="0" />
+      <window_info id="Bookmarks" order="1" side_tool="true" />
+      <window_info id="Structure" order="2" side_tool="true" />
+      <window_info id="Pull Requests" order="3" />
+      <window_info active="true" content_ui="combo" id="Project" order="4" visible="true" weight="0.27058506" />
+      <window_info id="Commit" order="5" />
+      <window_info id="Learn" order="6" show_stripe_button="false" />
+      <window_info anchor="bottom" id="Version Control" order="0" />
+      <window_info anchor="bottom" id="Database Changes" order="1" />
+      <window_info anchor="bottom" id="TypeScript" order="2" />
+      <window_info anchor="bottom" id="Debug" order="3" visible="true" weight="0.43061024" />
+      <window_info anchor="bottom" id="Python Packages" order="4" />
+      <window_info anchor="bottom" id="File Transfer" order="5" />
+      <window_info active="true" anchor="bottom" id="Run" order="6" visible="true" weight="0.3882874" />
+      <window_info anchor="bottom" id="Python Console" order="7" />
+      <window_info anchor="bottom" id="Problems View" order="8" />
+      <window_info anchor="bottom" id="Terminal" order="9" weight="0.33021653" />
+      <window_info anchor="bottom" id="Services" order="10" />
+      <window_info anchor="bottom" id="Dependency Checker" order="11" />
+      <window_info anchor="right" id="Endpoints" order="0" show_stripe_button="false" />
+      <window_info anchor="right" id="documentation.v2" order="1" side_tool="true" />
+      <window_info anchor="right" id="Database" order="2" />
+      <window_info anchor="right" id="github.copilotToolWindow" order="3" />
+      <window_info anchor="right" id="SciView" order="4" />
+      <window_info anchor="right" id="Notifications" order="5" weight="0.25" />
+    </layout>
+  </component>
+  <component name="RunManager" selected="Python.try_nesf">
+    <configuration name="ns-train" type="PythonConfigurationType" factoryName="Python">
+      <module name="nerfstudio_fork" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/tests" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/tests/try_nesf.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="try_nesf" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="nerfstudio_fork" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/tests" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/tests/try_nesf.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="pytest for test_train.test_nesf" type="tests" factoryName="py.test" temporary="true" nameIsGenerated="true">
+      <module name="nerfstudio_fork" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/tests" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="_new_keywords" value="&quot;&quot;" />
+      <option name="_new_parameters" value="&quot;&quot;" />
+      <option name="_new_additionalArguments" value="&quot;&quot;" />
+      <option name="_new_target" value="&quot;test_train.test_nesf&quot;" />
+      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
+      <method v="2" />
+    </configuration>
+    <configuration name="pytest in test_train.py" type="tests" factoryName="py.test" temporary="true" nameIsGenerated="true">
+      <module name="nerfstudio_fork" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/tests" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="_new_keywords" value="&quot;&quot;" />
+      <option name="_new_parameters" value="&quot;&quot;" />
+      <option name="_new_additionalArguments" value="&quot;&quot;" />
+      <option name="_new_target" value="&quot;$PROJECT_DIR$/tests/test_train.py&quot;" />
+      <option name="_new_targetType" value="&quot;PATH&quot;" />
+      <method v="2" />
+    </configuration>
+    <configuration name="pytest in try_nesf.py" type="tests" factoryName="py.test" temporary="true" nameIsGenerated="true">
+      <module name="nerfstudio_fork" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/tests" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="_new_keywords" value="&quot;&quot;" />
+      <option name="_new_parameters" value="&quot;&quot;" />
+      <option name="_new_additionalArguments" value="&quot;&quot;" />
+      <option name="_new_target" value="&quot;$PROJECT_DIR$/tests/try_nesf.py&quot;" />
+      <option name="_new_targetType" value="&quot;PATH&quot;" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Python.ns-train" />
+      <item itemvalue="Python.try_nesf" />
+      <item itemvalue="Python tests.pytest for test_train.test_nesf" />
+      <item itemvalue="Python tests.pytest in test_train.py" />
+      <item itemvalue="Python tests.pytest in try_nesf.py" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.try_nesf" />
+        <item itemvalue="Python tests.pytest in try_nesf.py" />
+        <item itemvalue="Python tests.pytest in test_train.py" />
+        <item itemvalue="Python tests.pytest for test_train.test_nesf" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="f47e01c7-f661-4cd9-b0aa-534b944f5573" name="Changes" comment="" />
+      <created>1674902050641</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1674902050641</updated>
+      <workItem from="1674902053659" duration="5800000" />
+      <workItem from="1675111865606" duration="70000" />
+      <workItem from="1675111948631" duration="1274000" />
+      <workItem from="1675155511282" duration="5879000" />
+      <workItem from="1675172113377" duration="536000" />
+      <workItem from="1675618290057" duration="2787000" />
+      <workItem from="1675761294982" duration="99000" />
+      <workItem from="1675761407543" duration="1424000" />
+      <workItem from="1675762926350" duration="1550000" />
+      <workItem from="1675766382243" duration="1346000" />
+      <workItem from="1675770224116" duration="610000" />
+      <workItem from="1675773690592" duration="149000" />
+      <workItem from="1675774113179" duration="223000" />
+      <workItem from="1675774672375" duration="621000" />
+      <workItem from="1675776111246" duration="49000" />
+      <workItem from="1675776279811" duration="965000" />
+      <workItem from="1675777283163" duration="2466000" />
+      <workItem from="1675859491764" duration="598000" />
+      <workItem from="1675863656307" duration="599000" />
+      <workItem from="1675865207281" duration="599000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" type="python-line">
+          <url>file://$PROJECT_DIR$/nerfstudio/engine/trainer.py</url>
+          <line>236</line>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="python-line">
+          <url>file://$PROJECT_DIR$/nerfstudio/utils/writer.py</url>
+          <line>284</line>
+          <option name="timeStamp" value="2" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="python-line">
+          <url>file://$PROJECT_DIR$/nerfstudio/utils/writer.py</url>
+          <line>285</line>
+          <option name="timeStamp" value="3" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="python-line">
+          <url>file://$PROJECT_DIR$/nerfstudio/utils/writer.py</url>
+          <line>157</line>
+          <option name="timeStamp" value="4" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="python-line">
+          <url>file://$PROJECT_DIR$/nerfstudio/data/dataparsers/nesf_dataparser.py</url>
+          <line>159</line>
+          <option name="timeStamp" value="5" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="python-line">
+          <url>file://$PROJECT_DIR$/nerfstudio/data/dataparsers/nesf_dataparser.py</url>
+          <line>179</line>
+          <option name="timeStamp" value="6" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/nerfstudio_fork$ns_train.coverage" NAME="ns-train Coverage Results" MODIFIED="1675763991722" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
+    <SUITE FILE_PATH="coverage/nerfstudio_fork$try_nesf.coverage" NAME="try_nesf Coverage Results" MODIFIED="1675865151216" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
+    <SUITE FILE_PATH="coverage/nerfstudio_fork$pytest_in_test_train_py.coverage" NAME="pytest in test_train.py Coverage Results" MODIFIED="1675619411940" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
+    <SUITE FILE_PATH="coverage/nerfstudio_fork$pytest_in_test_nesf_py.coverage" NAME="pytest in try_nesf.py Coverage Results" MODIFIED="1675619563976" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
+    <SUITE FILE_PATH="coverage/nerfstudio_fork$pytest_for_test_train_test_nesf.coverage" NAME="pytest for test_train.test_nesf Coverage Results" MODIFIED="1675619216393" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
+  </component>
+</project>

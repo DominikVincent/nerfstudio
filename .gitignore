@@ -184,3 +184,5 @@ bash/
 cache/
 package-lock.json
 camera_paths/
+playground/own_loading/*
+playground/tmp/*
