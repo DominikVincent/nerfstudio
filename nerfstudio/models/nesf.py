@@ -61,14 +61,13 @@ class NeuralSemanticFieldModel(Model):
     def populate_modules(self):
         # TODO create 3D-Unet here
         # raise NotImplementedError
-        self.rgb_loss = MSELoss()
-        self.psnr = PeakSignalNoiseRatio(data_range=1.0)
 
-        # Query the NeRF model at the ray bundles
-        self.rgb_zeros = torch.rand((1, 3), requires_grad=True)
-        self.rgb_zeros_param = torch.nn.Parameter(self.rgb_zeros)
-        # A fallback model used purely for inference rendering if no other model is specified
-        self.fallback_model: Optional[Model] = None
+        # Losses
+        self.rgb_loss = MSELoss()
+        self.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction="mean")
+
+        # Metrics
+        self.psnr = PeakSignalNoiseRatio(data_range=1.0)
 
         # Feature extractor
         # self.feature_model = FeatureGenerator()
@@ -80,6 +79,9 @@ class NeuralSemanticFieldModel(Model):
         # Renderer
         self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
         self.renderer_semantics = SemanticRenderer()
+
+        # This model gets used if no model gets passed in the batch, e.g. when using the viewer
+        self.fallback_model: Optional[Model] = None
 
         # count parameters
         total_params = sum(p.numel() for p in self.parameters())
@@ -114,16 +116,13 @@ class NeuralSemanticFieldModel(Model):
         field_outputs = self.feature_transformer(outs)
 
         # rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
-        semantics = self.renderer_semantics(
-            field_outputs[FieldHeadNames.SEMANTICS], weights=weights
-        )
+        semantics = self.renderer_semantics(field_outputs[FieldHeadNames.SEMANTICS], weights=weights)
 
         # semantics colormaps
         semantic_labels = torch.argmax(torch.nn.functional.softmax(semantics, dim=-1), dim=-1)
-        semantics_colormap = self.semantics.colors[semantic_labels]
+        semantics_colormap = self.semantics.colors[semantic_labels].to(self.device)
 
         outputs = {
-            # "rgb": rgb,
             "rgb": semantics_colormap,
             "semantics": semantics,
             "semantics_colormap": semantics_colormap,
@@ -143,10 +142,12 @@ class NeuralSemanticFieldModel(Model):
     def get_loss_dict(self, outputs, batch: Dict[str, Any], metrics_dict=None):
         # image = batch["image"].to(self.device)
 
+        pred = outputs["semantics"]
+        gt = batch["semantics"][..., 0].long()
+        # print the unique values of the gt
         loss_dict = {
-            "semantics_loss": self.cross_entropy_loss(outputs["semantics"], batch["semantics"][..., 0].long()),
+            "semantics_loss": self.cross_entropy_loss(pred, gt),
             # "rgb_loss": self.rgb_loss(image, outputs["rgb"])
-
         }
 
         return loss_dict
@@ -183,20 +184,15 @@ class NeuralSemanticFieldModel(Model):
     def get_image_metrics_and_images(
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, Any]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
-        image = batch["image"].to(self.device)
-        rgb = outputs["rgb"]
-        combined_rgb = torch.cat([image, rgb], dim=1)
-
-        # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
-        image = torch.moveaxis(image, -1, 0)[None, ...]
-        rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
+        semantics_colormap_gt = self.semantics.colors[batch["semantics"].squeeze(-1)].to(self.device)
+        semantics_colormap = outputs["semantics_colormap"]
+        combined_semantics = torch.cat([semantics_colormap_gt, semantics_colormap], dim=1)
 
         images_dict = {
-            "img": combined_rgb,
+            "img": combined_semantics,
             "semantics_colormap": outputs["semantics_colormap"],
         }
 
-        psnr = self.psnr(image, rgb)
         # metrics_dict = {"psnr": float(psnr.item())}
         metrics_dict = {}
 
@@ -270,6 +266,118 @@ class FeatureGeneratorTorch(nn.Module):
         # features = rgb + add_term
         out = features
         return out, weights
+
+
+class Block(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.double_conv = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(),
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        assert x.dtype == torch.float32
+        y = self.double_conv(x)
+        assert y.dtype == torch.float32
+        assert not torch.isnan(y).any()
+
+        return y
+
+
+class Encoder(nn.Module):
+    def __init__(self, chs=(1, 64, 128, 256)):
+        super().__init__()
+        self.enc_blocks = nn.ModuleList([Block(chs[i], chs[i + 1]) for i in range(len(chs) - 1)])
+        self.pool = nn.MaxPool2d(2)
+
+    def forward(self, x) -> List[torch.Tensor]:
+        ftrs = []
+        assert x.dtype == torch.float32
+        for block in self.enc_blocks:
+            x = block(x)
+            assert x.dtype == torch.float32
+
+            ftrs.append(x)
+            x = self.pool(x)
+            assert x.dtype == torch.float32
+
+        return ftrs
+
+
+class Decoder(nn.Module):
+    def __init__(self, chs=(256, 128, 64, 1)):
+        super().__init__()
+        self.chs = chs
+        self.upconvs = nn.ModuleList([nn.ConvTranspose2d(chs[i], chs[i + 1], 2, 2) for i in range(len(chs) - 1)])
+        self.dec_blocks = nn.ModuleList([Block(chs[i], chs[i + 1]) for i in range(len(chs) - 1)])
+
+    def forward(self, x: torch.Tensor, encoder_features: List[torch.Tensor]):
+        assert x.dtype == torch.float32
+
+        for i in range(len(self.chs) - 1):
+            x = self.upconvs[i](x)
+            assert x.dtype == torch.float32
+
+            enc_ftrs = self.crop(encoder_features[i], x)
+            x = torch.cat([x, enc_ftrs], dim=1)
+            assert x.dtype == torch.float32
+
+            x = self.dec_blocks[i](x)
+            assert x.dtype == torch.float32
+
+        return x
+
+    def crop(self, enc_ftrs, x):
+        _, _, H, W = x.shape
+        enc_ftrs = torchvision.transforms.CenterCrop([H, W])(enc_ftrs)
+        assert enc_ftrs.dtype == torch.float32
+        return enc_ftrs
+
+
+class UNet(nn.Module):
+    def __init__(self, enc_chs=(1, 16, 32), dec_chs=(32, 16), num_class=4):
+        super().__init__()
+        self.encoder = Encoder(enc_chs)
+        self.decoder = Decoder(dec_chs)
+        self.head = nn.Conv2d(dec_chs[-1], num_class, 1)
+        self.density_activation = nn.ReLU()
+        self.num_classes = num_class
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+
+        enc_ftrs = self.encoder(x)
+
+        for enc_ftr in enc_ftrs:
+            assert not torch.isnan(enc_ftr).any()
+            assert not torch.isnan(enc_ftr).any()
+            assert enc_ftr.dtype == torch.float32
+
+        out = self.decoder(enc_ftrs[::-1][0], enc_ftrs[::-1][1:])
+
+        assert not torch.isnan(out).any()
+        assert not torch.isnan(out).any()
+
+        out = self.head(out)
+
+        assert not torch.isnan(out).any()
+        assert not torch.isnan(out).any()
+
+        # reduce the channel dimension
+        out = torch.mean(out, dim=-1)
+
+        output = {}
+        output[FieldHeadNames.SEMANTICS] = out.squeeze(1).permute(0, 2, 1)
+
+        # assert that output does not contain nan and inf values
+        assert not torch.isnan(output[FieldHeadNames.SEMANTICS]).any()
+        assert not torch.isinf(output[FieldHeadNames.SEMANTICS]).any()
+        return output
 
 
 class FeatureGenerator(nn.Module):
@@ -373,121 +481,3 @@ class FeatureGenerator(nn.Module):
         features = torch.cat([pos_features, field_features], dim=1)
         features = features.view(ray_samples.shape[0], ray_samples.shape[1], -1)
         return features, weights
-
-
-class Block(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super().__init__()
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(),
-            nn.Conv2d(out_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(),
-        )
-
-    def forward(self, x):
-        assert x.dtype == torch.float32
-        y = self.double_conv(x)
-        assert y.dtype == torch.float32
-        assert not torch.isnan(y).any()
-
-        return y
-
-
-class Encoder(nn.Module):
-    def __init__(self, chs=(1, 64, 128, 256)):
-        super().__init__()
-        self.enc_blocks = nn.ModuleList([Block(chs[i], chs[i + 1]) for i in range(len(chs) - 1)])
-        self.pool = nn.MaxPool2d(2)
-
-    def forward(self, x) -> List[torch.Tensor]:
-        ftrs = []
-        assert x.dtype == torch.float32
-        for block in self.enc_blocks:
-            x = block(x)
-            assert x.dtype == torch.float32
-
-            ftrs.append(x)
-            x = self.pool(x)
-            assert x.dtype == torch.float32
-
-        return ftrs
-
-
-class Decoder(nn.Module):
-    def __init__(self, chs=(256, 128, 64, 1)):
-        super().__init__()
-        self.chs = chs
-        self.upconvs = nn.ModuleList([nn.ConvTranspose2d(chs[i], chs[i + 1], 2, 2) for i in range(len(chs) - 1)])
-        self.dec_blocks = nn.ModuleList([Block(chs[i], chs[i + 1]) for i in range(len(chs) - 1)])
-
-    def forward(self, x: torch.Tensor, encoder_features: List[torch.Tensor]):
-        assert x.dtype == torch.float32
-
-        for i in range(len(self.chs) - 1):
-            x = self.upconvs[i](x)
-            assert x.dtype == torch.float32
-
-            enc_ftrs = self.crop(encoder_features[i], x)
-            x = torch.cat([x, enc_ftrs], dim=1)
-            assert x.dtype == torch.float32
-
-            x = self.dec_blocks[i](x)
-            assert x.dtype == torch.float32
-
-        return x
-
-    def crop(self, enc_ftrs, x):
-        _, _, H, W = x.shape
-        enc_ftrs = torchvision.transforms.CenterCrop([H, W])(enc_ftrs)
-        assert enc_ftrs.dtype == torch.float32
-        return enc_ftrs
-
-
-class UNet(nn.Module):
-    def __init__(self, enc_chs=(1, 16, 32), dec_chs=(32, 16), num_class=4):
-        super().__init__()
-        self.encoder = Encoder(enc_chs)
-        self.decoder = Decoder(dec_chs)
-        self.head = nn.Conv2d(dec_chs[-1], num_class, 1)
-        self.density_activation = nn.ReLU()
-
-    def forward(self, x):
-        assert x.dtype == torch.float32
-        x = x.unsqueeze(1)
-        assert x.dtype == torch.float32
-
-        enc_ftrs = self.encoder(x)
-
-        for enc_ftr in enc_ftrs:
-            assert not torch.isnan(enc_ftr).any()
-            assert not torch.isnan(enc_ftr).any()
-            assert enc_ftr.dtype == torch.float32
-
-        out = self.decoder(enc_ftrs[::-1][0], enc_ftrs[::-1][1:])
-
-        assert out.dtype == torch.float32
-        assert not torch.isnan(out).any()
-        assert not torch.isnan(out).any()
-
-        out = self.head(out)
-
-        assert out.dtype == torch.float32
-        assert not torch.isnan(out).any()
-        assert not torch.isnan(out).any()
-
-        # reduce the channel dimension
-        out = torch.mean(out, dim=-1)
-
-        output = {}
-        output[FieldHeadNames.RGB] = torch.sigmoid(out[:, :3, :].squeeze(1).permute(0, 2, 1))
-        output[FieldHeadNames.DENSITY] = self.density_activation(out[:, 3:, :].permute(0, 2, 1))
-
-        # assert that output does not contain nan and inf values
-        assert not torch.isnan(output[FieldHeadNames.RGB]).any()
-        assert not torch.isnan(output[FieldHeadNames.DENSITY]).any()
-        assert not torch.isinf(output[FieldHeadNames.RGB]).any()
-        assert not torch.isinf(output[FieldHeadNames.DENSITY]).any()
-        return output
