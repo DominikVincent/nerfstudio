@@ -14,7 +14,9 @@ from typing_extensions import Literal
 
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.dataparsers.base_dataparser import Semantics
+from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
+from nerfstudio.field_components.encodings import RFFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.nerfacto_field import get_normalized_directions
 from nerfstudio.model_components.losses import MSELoss
@@ -50,7 +52,7 @@ class NeuralSemanticFieldModel(Model):
 
     def __init__(self, config: NeuralSemanticFieldConfig, metadata: Dict, **kwargs) -> None:
         assert "semantics" in metadata.keys() and isinstance(metadata["semantics"], Semantics)
-        self.semantics = metadata["semantics"]
+        self.semantics: Semantics = metadata["semantics"]
         super().__init__(config=config, **kwargs)
 
     def get_training_callbacks(
@@ -71,10 +73,21 @@ class NeuralSemanticFieldModel(Model):
 
         # Feature extractor
         # self.feature_model = FeatureGenerator()
-        self.feature_model = FeatureGeneratorTorch()
+        self.feature_model = FeatureGeneratorTorch(aabb=self.scene_box.aabb)
 
         # Feature Transformer
-        self.feature_transformer = UNet(num_class=len(self.semantics.classes))
+        # TODO make them customizable
+        self.feature_transformer = TransformerModel(
+            output_size=len(self.semantics.classes),
+            num_layers=2,
+            d_model=self.feature_model.get_out_dim(),
+            num_heads=4,
+            dff=64,
+            dropout_rate=0.1,
+        )
+
+        # The learnable parameter for the semantic class with low density. Should represent the logits.
+        self.class_probs_low_density = torch.nn.Parameter(torch.randn(len(self.semantics.classes)))
 
         # Renderer
         self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
@@ -103,7 +116,7 @@ class NeuralSemanticFieldModel(Model):
         # TODO do semantic rendering
         model: Model = self.get_model(batch)
 
-        outs, weights = self.feature_model(ray_bundle, model)
+        outs, weights, density_mask = self.feature_model(ray_bundle, model)
 
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
@@ -115,8 +128,10 @@ class NeuralSemanticFieldModel(Model):
 
         field_outputs = self.feature_transformer(outs)
 
-        # rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
-        semantics = self.renderer_semantics(field_outputs[FieldHeadNames.SEMANTICS], weights=weights)
+        semantics = torch.empty((*density_mask.shape, len(self.semantics.classes)), device=self.device)
+        semantics[density_mask] = field_outputs[FieldHeadNames.SEMANTICS]
+        semantics[~density_mask] = self.class_probs_low_density
+        semantics = self.renderer_semantics(semantics, weights=weights)
 
         # semantics colormaps
         semantic_labels = torch.argmax(torch.nn.functional.softmax(semantics, dim=-1), dim=-1)
@@ -232,16 +247,21 @@ class FeatureGeneratorTorch(nn.Module):
         nn (_type_): _description_
     """
 
-    def __init__(self, positional_encoding_dim=128, field_output_encoding=128):
+    def __init__(self, aabb, density_threshold: float = 0.5, out_rgb_dim: int = 8):
         super().__init__()
+        self.aabb = Parameter(aabb, requires_grad=False)
+        self.density_threshold = density_threshold
 
+        self.out_rgb_dim: int = out_rgb_dim
         self.linear = nn.Sequential(
             nn.Linear(3, 128),
             nn.ReLU(),
-            nn.Linear(128, 16),
+            nn.Linear(128, self.out_rgb_dim),
             nn.Sigmoid(),
         )
-        # self.useless_parameter = nn.Parameter(torch.rand(1, 3))
+
+        self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
+        self.dir_encoder = SHEncoding()
 
     def forward(self, ray_bundle: RayBundle, model: Model):
         model.eval()
@@ -257,227 +277,42 @@ class FeatureGeneratorTorch(nn.Module):
         else:
             raise NotImplementedError("Only NerfactoModel is supported for now")
 
-        rgb = field_outputs[FieldHeadNames.RGB]
         density = field_outputs[FieldHeadNames.DENSITY]
+        density_mask = (density > self.density_threshold).squeeze(-1)
 
-        features = self.linear(rgb.view(-1, 3))
-        features = features.view(ray_samples.shape[0], ray_samples.shape[1], -1)
-        # add_term = +0.000001 * torch.sigmoid(self.useless_parameter.repeat(rgb.shape[0], rgb.shape[1], 1))
-        # features = rgb + add_term
-        out = features
-        return out, weights
+        rgb = field_outputs[FieldHeadNames.RGB][density_mask]
+        rgb = self.linear(rgb)
+
+        positions = ray_samples.frustums.get_positions()[density_mask]
+        positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
+        pos_encoding = self.pos_encoder(positions_normalized)
+
+        directions = ray_samples.frustums.directions[density_mask]
+        dir_encoding = self.dir_encoder(get_normalized_directions(directions))
+
+        out = torch.cat([rgb, pos_encoding, dir_encoding], dim=1).unsqueeze(0)
+        return out, weights, density_mask
+
+    def get_out_dim(self) -> int:
+        return self.pos_encoder.get_out_dim() + self.dir_encoder.get_out_dim() + self.out_rgb_dim
 
 
-class Block(nn.Module):
-    def __init__(self, in_ch, out_ch):
+class TransformerModel(torch.nn.Module):
+    def __init__(self, output_size, num_layers, d_model, num_heads, dff, dropout_rate):
         super().__init__()
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(),
-            nn.Conv2d(out_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(),
-        )
+
+        # Define the transformer encoder
+        self.encoder_layer = torch.nn.TransformerEncoderLayer(d_model, num_heads, dff, dropout_rate, batch_first=True)
+        self.transformer_encoder = torch.nn.TransformerEncoder(self.encoder_layer, num_layers)
+
+        # Define the output layer
+        self.final_layer = torch.nn.Linear(d_model, output_size)
 
     def forward(self, x):
-        assert x.dtype == torch.float32
-        y = self.double_conv(x)
-        assert y.dtype == torch.float32
-        assert not torch.isnan(y).any()
+        # Apply the transformer encoder
+        x = self.transformer_encoder(x)
 
-        return y
+        # Apply the final layer
+        x = self.final_layer(x)
 
-
-class Encoder(nn.Module):
-    def __init__(self, chs=(1, 64, 128, 256)):
-        super().__init__()
-        self.enc_blocks = nn.ModuleList([Block(chs[i], chs[i + 1]) for i in range(len(chs) - 1)])
-        self.pool = nn.MaxPool2d(2)
-
-    def forward(self, x) -> List[torch.Tensor]:
-        ftrs = []
-        assert x.dtype == torch.float32
-        for block in self.enc_blocks:
-            x = block(x)
-            assert x.dtype == torch.float32
-
-            ftrs.append(x)
-            x = self.pool(x)
-            assert x.dtype == torch.float32
-
-        return ftrs
-
-
-class Decoder(nn.Module):
-    def __init__(self, chs=(256, 128, 64, 1)):
-        super().__init__()
-        self.chs = chs
-        self.upconvs = nn.ModuleList([nn.ConvTranspose2d(chs[i], chs[i + 1], 2, 2) for i in range(len(chs) - 1)])
-        self.dec_blocks = nn.ModuleList([Block(chs[i], chs[i + 1]) for i in range(len(chs) - 1)])
-
-    def forward(self, x: torch.Tensor, encoder_features: List[torch.Tensor]):
-        assert x.dtype == torch.float32
-
-        for i in range(len(self.chs) - 1):
-            x = self.upconvs[i](x)
-            assert x.dtype == torch.float32
-
-            enc_ftrs = self.crop(encoder_features[i], x)
-            x = torch.cat([x, enc_ftrs], dim=1)
-            assert x.dtype == torch.float32
-
-            x = self.dec_blocks[i](x)
-            assert x.dtype == torch.float32
-
-        return x
-
-    def crop(self, enc_ftrs, x):
-        _, _, H, W = x.shape
-        enc_ftrs = torchvision.transforms.CenterCrop([H, W])(enc_ftrs)
-        assert enc_ftrs.dtype == torch.float32
-        return enc_ftrs
-
-
-class UNet(nn.Module):
-    def __init__(self, enc_chs=(1, 16, 32), dec_chs=(32, 16), num_class=4):
-        super().__init__()
-        self.encoder = Encoder(enc_chs)
-        self.decoder = Decoder(dec_chs)
-        self.head = nn.Conv2d(dec_chs[-1], num_class, 1)
-        self.density_activation = nn.ReLU()
-        self.num_classes = num_class
-
-    def forward(self, x):
-        x = x.unsqueeze(1)
-
-        enc_ftrs = self.encoder(x)
-
-        for enc_ftr in enc_ftrs:
-            assert not torch.isnan(enc_ftr).any()
-            assert not torch.isnan(enc_ftr).any()
-            assert enc_ftr.dtype == torch.float32
-
-        out = self.decoder(enc_ftrs[::-1][0], enc_ftrs[::-1][1:])
-
-        assert not torch.isnan(out).any()
-        assert not torch.isnan(out).any()
-
-        out = self.head(out)
-
-        assert not torch.isnan(out).any()
-        assert not torch.isnan(out).any()
-
-        # reduce the channel dimension
-        out = torch.mean(out, dim=-1)
-
-        output = {}
-        output[FieldHeadNames.SEMANTICS] = out.squeeze(1).permute(0, 2, 1)
-
-        # assert that output does not contain nan and inf values
-        assert not torch.isnan(output[FieldHeadNames.SEMANTICS]).any()
-        assert not torch.isinf(output[FieldHeadNames.SEMANTICS]).any()
-        return output
-
-
-class FeatureGenerator(nn.Module):
-    """Takes in a batch of b Ray bundles, samples s points along the ray. Then it outputs n x m x f matrix.
-    Each row corresponds to one feature of a sampled point of the ray.
-
-    Args:
-        nn (_type_): _description_
-    """
-
-    def __init__(self, positional_encoding_dim=128, field_output_encoding=128):
-        super().__init__()
-        self.direction_encoding = tcnn.Encoding(
-            n_input_dims=3,
-            encoding_config={
-                "otype": "SphericalHarmonics",
-                "degree": 4,
-            },
-        )
-
-        self.position_frustums_encoding = tcnn.Encoding(
-            n_input_dims=3,
-            encoding_config={"otype": "Frequency", "n_frequencies": 2},
-        )
-
-        self.mlp_merged_pos_encoding = tcnn.Network(
-            n_input_dims=self.direction_encoding.n_output_dims + self.position_frustums_encoding.n_output_dims,
-            n_output_dims=positional_encoding_dim,
-            network_config={
-                "otype": "FullyFusedMLP",
-                "activation": "ReLU",
-                "output_activation": "None",
-                "n_neurons": 64,
-                "n_hidden_layers": 4,
-            },
-        )
-
-        # Tiny cudnn network for processing the field outputs of the samples b x s x (rgb + density = 4)
-        self.mlp_field_output = tcnn.Network(
-            n_input_dims=4,
-            n_output_dims=field_output_encoding,
-            network_config={
-                "otype": "FullyFusedMLP",
-                "activation": "ReLU",
-                "output_activation": "None",
-                "n_neurons": 64,
-                "n_hidden_layers": 4,
-            },
-        )
-
-    def forward(self, ray_bundle: RayBundle, model: Model) -> Tuple[Tensor, TensorType[..., "num_samples", 1]]:
-        model.eval()
-        if isinstance(model, NerfactoModel):
-            model = cast(NerfactoModel, model)
-            with torch.no_grad():
-                if model.collider is not None:
-                    ray_bundle = model.collider(ray_bundle)
-
-                ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
-                field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
-                weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
-        else:
-            raise NotImplementedError("Only NerfactoModel is supported for now")
-
-        # normalize field densitities:
-        densities = field_outputs[FieldHeadNames.DENSITY]
-        # set infinite values to highest finite value
-        densities[torch.isinf(densities)] = torch.max(densities[~torch.isinf(densities)])
-        densities = torch.log(densities + 1.0)
-
-        mean_vals = torch.mean(densities, dim=1, keepdim=True)
-        std_vals = torch.std(densities, dim=1, keepdim=True)
-
-        # Scale the values to have a mean of 0 and a standard deviation of 1
-        normalized_densities = (densities - mean_vals) / std_vals
-
-        field_outputs_stacked = torch.cat((field_outputs[FieldHeadNames.RGB], normalized_densities), dim=-1)
-        field_features = self.mlp_field_output(field_outputs_stacked.view(-1, 4))
-
-        # assert that field_features are not nan or inf
-        assert torch.isnan(field_features).sum() == 0
-        assert torch.isinf(field_features).sum() == 0
-
-        # Positional encoding of the Frustums
-        positions_frustums = ray_samples.frustums.get_positions()
-        positions_frustums_flat = self.position_frustums_encoding(positions_frustums.view(-1, 3))
-
-        # Positional encoding of the ray
-        directions = get_normalized_directions(ray_samples.frustums.directions)
-        directions_flat = directions.view(-1, 3)
-        d = self.direction_encoding(directions_flat)
-
-        pos_encode = torch.cat([d, positions_frustums_flat], dim=1)
-
-        pos_features = self.mlp_merged_pos_encoding(pos_encode)
-
-        # assert that pos_features are not nan or inf
-        assert torch.isnan(pos_features).sum() == 0
-        assert torch.isinf(pos_features).sum() == 0
-
-        features = torch.cat([pos_features, field_features], dim=1)
-        features = features.view(ray_samples.shape[0], ray_samples.shape[1], -1)
-        return features, weights
+        return {FieldHeadNames.SEMANTICS: x}

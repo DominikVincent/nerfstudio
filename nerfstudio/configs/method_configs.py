@@ -339,8 +339,8 @@ method_configs["nesf"] = TrainerConfig(
     pipeline=NesfPipelineConfig(
         datamanager=NesfDataManagerConfig(
             dataparser=NesfDataParserConfig(),
-            train_num_rays_per_batch=4096,
-            eval_num_rays_per_batch=4096,
+            train_num_rays_per_batch=32,
+            eval_num_rays_per_batch=32,
             camera_optimizer=CameraOptimizerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
@@ -357,7 +357,7 @@ method_configs["nesf"] = TrainerConfig(
             "scheduler": None,
         },
     },
-    viewer=ViewerConfig(num_rays_per_chunk=1 << 15, websocket_port=7011),
+    viewer=ViewerConfig(num_rays_per_chunk=1 << 12, websocket_port=7011),
     save_only_latest_checkpoint=False,
     vis="viewer",
 )
