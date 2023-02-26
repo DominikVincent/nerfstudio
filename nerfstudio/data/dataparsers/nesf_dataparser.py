@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Type
+from typing import Dict, List, Type
 
 import torch
 from rich.console import Console
@@ -25,7 +25,8 @@ from rich.console import Console
 from nerfstudio.data.dataparsers.base_dataparser import (
     DataParser,
     DataParserConfig,
-    DataparserOutputs, Semantics,
+    DataparserOutputs,
+    Semantics,
 )
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
 from nerfstudio.models.base_model import Model
@@ -36,22 +37,42 @@ CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
 
 SEMANTIC_CLASSES_CLEVR_OBJECTS = ["background", "cube", "cylinder", "sphere", "cone", "torus"]
-SEMANTIC_CLASSES_KUBASIC_OBJECTS = ["background", "cube", "cylinder", "sphere", "cone", "torus", "gear",
-                                    "torus_knot", "sponge", "spot", "teapot", "suzanne"]
-
-CLASS_TO_COLOR = torch.tensor([
-    [0, 0, 0],
-    [255, 0, 0],
-    [0, 255, 0],
-    [0, 0, 255],
-    [255, 255, 0],
-    [255, 0, 255],
-    [0, 255, 255],
-    [255, 255, 255],
-    [128, 0, 0],
-    [0, 128, 0],
-    [0, 0, 128],
+SEMANTIC_CLASSES_KUBASIC_OBJECTS = [
+    "background",
+    "cube",
+    "cylinder",
+    "sphere",
+    "cone",
+    "torus",
+    "gear",
+    "torus_knot",
+    "sponge",
+    "spot",
+    "teapot",
+    "suzanne",
 ]
+
+CLASS_TO_COLOR = (
+    torch.tensor(
+        [
+            [0, 0, 0],
+            [255, 0, 0],
+            [0, 255, 0],
+            [0, 0, 255],
+            [255, 255, 0],
+            [255, 0, 255],
+            [0, 255, 255],
+            [255, 255, 255],
+            [128, 0, 0],
+            [0, 128, 0],
+            [0, 0, 128],
+            [128, 128, 0],
+            [128, 0, 128],
+            [0, 128, 128],
+            [128, 128, 128],
+        ]
+    )
+    / 255.0
 )
 
 # TODO delete if not needed
@@ -188,16 +209,14 @@ class Nesf(DataParser):
             # get the list of semantic images. For each image there should be a semantic image.
             semantic_paths = []
             for image_filename in dataparser_output.image_filenames:
-                image_name = image_filename.name()
-                base_path = image_name.base()
-                number = image_filename.split("_")[1].split["."][0]
+                image_name = image_filename.stem
+                base_path = image_filename.parent
+                number = image_name.split("_")[1]
                 semantic_paths.append(base_path / f"segmentation_{number}.png")
 
-            semantics = Semantics(filenames=semantic_paths,
-                                  classes=SEMANTIC_CLASSES_CLEVR_OBJECTS,
-                                  colors=CLASS_TO_COLOR,
-                                  mask_classes=[]
-                                  )
+            semantics = Semantics(
+                filenames=semantic_paths, classes=SEMANTIC_CLASSES_CLEVR_OBJECTS, colors=CLASS_TO_COLOR, mask_classes=[]
+            )
             # TODO update dataparser_output.metadata with model
             dataparser_output.metadata.update({"model": model, "semantics": semantics})
 

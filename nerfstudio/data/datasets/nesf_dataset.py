@@ -1,7 +1,7 @@
 from typing import Dict, List
 
-from torch.utils.data import Dataset
 import torch
+from torch.utils.data import Dataset
 
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.datasets.base_dataset import InputDataset

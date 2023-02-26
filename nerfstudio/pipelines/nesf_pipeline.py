@@ -88,7 +88,9 @@ class NesfPipeline(Pipeline):
         assert self.datamanager.train_datasets is not None, "Missing input dataset"
 
         self._model = config.model.setup(
-            scene_box=self.datamanager.train_datasets.get_set(0).scene_box, num_train_data=-1
+            scene_box=self.datamanager.train_datasets.get_set(0).scene_box,
+            num_train_data=-1,
+            metadata=self.datamanager.train_dataset.metadata,
         )
         self.model.to(device)
 
@@ -155,7 +157,6 @@ class NesfPipeline(Pipeline):
         """
         self.eval()
         image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
-        CONSOLE.print(camera_ray_bundle.shape)
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
         assert "image_idx" not in metrics_dict

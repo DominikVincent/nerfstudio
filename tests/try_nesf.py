@@ -5,12 +5,10 @@ from nerfstudio.configs.method_configs import method_configs
 
 
 def run_nesf(vis: str = "wandb"):
-    data_config_path = Path(
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/playground/nesf_test_config.json"
-    )
+    data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config.json")
 
-    OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/playground/own_loading/")
-    DATA_PATH = Path("/data/vision/polina/scratch/clintonw/datasets/kubric/klevr/0")
+    OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/")
+    DATA_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11")
 
     trainConfig = method_configs["nesf"]
     trainConfig.vis = vis
