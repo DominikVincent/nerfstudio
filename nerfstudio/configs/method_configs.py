@@ -334,18 +334,18 @@ method_configs["nesf"] = TrainerConfig(
     steps_per_eval_batch=50,
     steps_per_eval_image=500,
     steps_per_save=500,
-    max_num_iterations=10000,
+    max_num_iterations=30000,
     mixed_precision=False,
     pipeline=NesfPipelineConfig(
         datamanager=NesfDataManagerConfig(
             dataparser=NesfDataParserConfig(),
-            train_num_rays_per_batch=32,
-            eval_num_rays_per_batch=32,
+            train_num_rays_per_batch=64,
+            eval_num_rays_per_batch=64,
             camera_optimizer=CameraOptimizerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
         ),
-        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=1 << 13),
+        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=128, rgb=True),
     ),
     optimizers={
         "feature_network": {
@@ -356,11 +356,53 @@ method_configs["nesf"] = TrainerConfig(
             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
             "scheduler": None,
         },
+        "learned_low_density_params": {
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+            "scheduler": None,
+        },
     },
-    viewer=ViewerConfig(num_rays_per_chunk=1 << 12, websocket_port=7011),
+    viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7011),
     save_only_latest_checkpoint=False,
     vis="viewer",
 )
+
+# method_configs["nesf"] = TrainerConfig(
+#     method_name="nesf",
+#     experiment_name="/tmp",
+#     steps_per_eval_batch=50,
+#     steps_per_eval_image=500,
+#     steps_per_save=500,
+#     max_num_iterations=10000,
+#     mixed_precision=False,
+#     pipeline=NesfPipelineConfig(
+#         datamanager=NesfDataManagerConfig(
+#             dataparser=NesfDataParserConfig(),
+#             train_num_rays_per_batch=32,
+#             eval_num_rays_per_batch=32,
+#             camera_optimizer=CameraOptimizerConfig(
+#                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+#             ),
+#         ),
+#         model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=64, rgb=False),
+#     ),
+#     optimizers={
+#         "feature_network": {
+#             "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
+#             "scheduler": None,
+#         },
+#         "feature_transformer": {
+#             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+#             "scheduler": None,
+#         },
+#         "learned_low_density_params": {
+#             "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+#             "scheduler": None,
+#         },
+#     },
+#     viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7011),
+#     save_only_latest_checkpoint=False,
+#     vis="viewer",
+# )
 
 
 AnnotatedBaseConfigUnion = tyro.conf.SuppressFixed[  # Don't show unparseable (fixed) arguments in helptext.

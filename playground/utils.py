@@ -1,14 +1,15 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+import torch
+from pytransform3d.transform_manager import TransformManager
+
+from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.model_components.ray_samplers import UniformSampler
-from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.utils import plotly_utils as vis
 
-import torch
-import numpy as np
-import plotly.graph_objects as go
-import matplotlib.pyplot as plt
-import plotly.express as px
-from pytransform3d.transform_manager import TransformManager
 
 def query_one_point(ray_bundle, model, point_idx, uniform=False, num_samples=10):
     qp_before = model.proposal_sampler.num_nerf_samples_per_ray
@@ -177,7 +178,7 @@ def plot_cameras(cameras):
         # visualize the transformation
         tm.add_transform( f"cam_{i}", "world", transformation)
         # print translation of camera
-        print(f"Camera {i} translation: ", tm.get_transform(f"cam_{i}", "world")[:3, 3])
+        # print(f"Camera {i} translation: ", tm.get_transform(f"cam_{i}", "world")[:3, 3])
 
 
     ax = tm.plot_frames_in("world", s=0.1)
