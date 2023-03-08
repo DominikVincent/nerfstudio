@@ -48,6 +48,26 @@ class NeuralSemanticFieldConfig(ModelConfig):
     rgb: bool = True
     """whether tor predict the identiy rgb-> rgb instead of rgb -> semantics."""
 
+    use_feature_rgb: bool = True
+    """whether to use rgb as feature or not."""
+    rgb_feature_dim: int = 8
+    """the dimension of the rgb feature."""
+    use_feature_pos: bool = True
+    """whether to use pos as feature or not."""
+    use_feature_dir: bool = False
+    """whether to use viewing direction as feature or not."""
+
+    feature_transformer_num_layers: int = 6
+    """The number of encoding layers in the feature transformer."""
+    feature_transformer_num_heads: int = 8
+    """The number of multihead attention heads in the feature transformer."""
+    feature_transformer_dim_feed_forward: int = 128
+    """The dimension of the feedforward network model in the feature transformer."""
+    feature_transformer_dropout_rate: float = 0.1
+    """The dropout rate in the feature transformer."""
+    feature_transformer_feature_dim: int = 64
+    """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
+
 
 class NeuralSemanticFieldModel(Model):
 
@@ -82,20 +102,25 @@ class NeuralSemanticFieldModel(Model):
         # Feature extractor
         # self.feature_model = FeatureGenerator()
         self.feature_model = FeatureGeneratorTorch(
-            aabb=self.scene_box.aabb, out_rgb_dim=3, rgb=True, pos_encoding=False, dir_encoding=False
+            aabb=self.scene_box.aabb,
+            out_rgb_dim=self.config.rgb_feature_dim,
+            rgb=self.config.use_feature_rgb,
+            pos_encoding=self.config.use_feature_pos,
+            dir_encoding=self.config.use_feature_dir,
         )
 
         # Feature Transformer
         # TODO make them customizable
         output_size = 3 if self.config.rgb else len(self.semantics.classes)
-        activation = torch.nn.Sigmoid() if self.config.rgb else None
+        activation = torch.nn.ReLU() if self.config.rgb else None
         self.feature_transformer = TransformerModel(
             output_size=output_size,
-            num_layers=2,
-            d_model=self.feature_model.get_out_dim(),
-            num_heads=3,
-            dff=9,
-            dropout_rate=0.1,
+            num_layers=self.config.feature_transformer_num_layers,
+            input_size=self.feature_model.get_out_dim(),
+            feature_dim=self.config.feature_transformer_feature_dim,
+            num_heads=self.config.feature_transformer_num_heads,
+            dim_feed_forward=self.config.feature_transformer_dim_feed_forward,
+            dropout_rate=self.config.feature_transformer_dropout_rate,
             activation=activation,
         )
 
@@ -139,7 +164,7 @@ class NeuralSemanticFieldModel(Model):
         model: Model = self.get_model(batch)
 
         outs, weights, density_mask = self.feature_model(ray_bundle, model)
-        CONSOLE.print("dense values: ", (density_mask).sum().item(), "/", density_mask.numel())
+        # CONSOLE.print("dense values: ", (density_mask).sum().item(), "/", density_mask.numel())
 
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
@@ -156,10 +181,9 @@ class NeuralSemanticFieldModel(Model):
             # debug rgb
             rgb = torch.empty((*density_mask.shape, 3), device=self.device)
             rgb[density_mask] = field_outputs[FieldHeadNames.SEMANTICS]
-            rgb[~density_mask] = torch.nn.functional.sigmoid(self.learned_low_density_value)
+            rgb[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value)
             rgb = self.renderer_rgb(rgb, weights=weights)
             outputs["rgb"] = rgb
-            CONSOLE.print("RGB value", torch.sigmoid(self.learned_low_density_value).p)
         else:
             semantics = torch.empty((*density_mask.shape, len(self.semantics.classes)), device=self.device)
             semantics[density_mask] = field_outputs[FieldHeadNames.SEMANTICS]
@@ -223,10 +247,12 @@ class NeuralSemanticFieldModel(Model):
             camera_ray_bundle: ray bundle to calculate outputs over
             :param batch: additional information of the batch here it includes at least the model
         """
+
         num_rays_per_chunk = self.config.eval_num_rays_per_chunk
         image_height, image_width = camera_ray_bundle.origins.shape[:2]
         num_rays = len(camera_ray_bundle)
         outputs_lists = defaultdict(list)
+        # get permuted ind
         for i in range(0, num_rays, num_rays_per_chunk):
             start_idx = i
             end_idx = i + num_rays_per_chunk
@@ -327,8 +353,9 @@ class FeatureGeneratorTorch(nn.Module):
         self.linear = nn.Sequential(
             nn.Linear(3, 128),
             nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
             nn.Linear(128, self.out_rgb_dim),
-            nn.Sigmoid(),
         )
 
         if self.pos_encoding:
@@ -357,7 +384,7 @@ class FeatureGeneratorTorch(nn.Module):
 
         if self.rgb:
             rgb = field_outputs[FieldHeadNames.RGB][density_mask]
-            # rgb = rgb + self.linear(rgb)
+            rgb = self.linear(rgb)
             encodings.append(rgb)
 
         if self.pos_encoding:
@@ -383,37 +410,50 @@ class FeatureGeneratorTorch(nn.Module):
 
 
 class TransformerModel(torch.nn.Module):
-    def __init__(self, output_size, num_layers, d_model, num_heads, dff, dropout_rate, activation=None):
+    def __init__(
+        self,
+        output_size,
+        num_layers,
+        input_size,
+        num_heads,
+        dim_feed_forward,
+        dropout_rate,
+        activation=None,
+        feature_dim=32,
+    ):
         super().__init__()
 
+        # Feature dim layer
+        self.feature_dim_layer = torch.nn.Sequential(
+            torch.nn.Linear(input_size, feature_dim),
+            torch.nn.ReLU(),
+        )
+
         # Define the transformer encoder
-        self.encoder_layer = torch.nn.TransformerEncoderLayer(d_model, num_heads, dff, dropout_rate, batch_first=True)
+        self.encoder_layer = torch.nn.TransformerEncoderLayer(
+            feature_dim, num_heads, dim_feed_forward, dropout_rate, batch_first=True
+        )
         self.transformer_encoder = torch.nn.TransformerEncoder(self.encoder_layer, num_layers)
 
         # Define the output layer
         self.final_layer = torch.nn.Sequential(
-            torch.nn.Linear(d_model, 128),
-            torch.nn.Linear(128, output_size),
+            torch.nn.Linear(feature_dim, output_size),
         )
 
         self.activation = activation
 
     def forward(self, x):
 
-        x = x.squeeze(0)
+        x = self.feature_dim_layer(x)
+
         # Apply the transformer encoder
-        input_data = x
         x = self.transformer_encoder(x)
 
         # Apply the final layer
 
         x = self.final_layer(x)
 
-        # x = x + input_data
-
         if self.activation is not None:
             x = self.activation(x)
 
-        x = x.unsqueeze(0)
-
-        return {FieldHeadNames.SEMANTICS: input_data + x}
+        return {FieldHeadNames.SEMANTICS: x}

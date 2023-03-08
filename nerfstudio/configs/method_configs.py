@@ -345,20 +345,23 @@ method_configs["nesf"] = TrainerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
         ),
-        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=128, rgb=True),
+        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=96, rgb=True),
     ),
     optimizers={
         "feature_network": {
-            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-15),
-            "scheduler": None,
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
         },
         "feature_transformer": {
-            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-            "scheduler": None,
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
         },
         "learned_low_density_params": {
-            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
-            "scheduler": None,
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
         },
     },
     viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7011),
