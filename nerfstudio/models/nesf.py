@@ -234,9 +234,9 @@ class NeuralSemanticFieldModel(Model):
 
         if self.config.rgb:
             image = batch["image"].to(self.device)
-            metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
+            metrics_dict["psnr_" + str(batch["model_idx"])] = self.psnr(outputs["rgb"], image)
 
-        self.enrich_dict_with_model(metrics_dict, batch["model_idx"])
+        # self.enrich_dict_with_model(metrics_dict, batch["model_idx"])
 
         return metrics_dict
 
@@ -244,7 +244,7 @@ class NeuralSemanticFieldModel(Model):
         loss_dict = {}
         if self.config.rgb:
             image = batch["image"].to(self.device)
-            loss_dict["rgb_loss"] = self.rgb_loss(image, outputs["rgb"])
+            loss_dict["rgb_loss_" + str(batch["model_idx"])] = self.rgb_loss(image, outputs["rgb"])
         else:
             pred = outputs["semantics"]
             gt = batch["semantics"][..., 0].long()
@@ -253,9 +253,9 @@ class NeuralSemanticFieldModel(Model):
             #     "Pred labels:", torch.bincount(torch.argmax(torch.nn.functional.softmax(pred, dim=-1), dim=-1)).p
             # )
             # print the unique values of the gt
-            loss_dict["semantics_loss"] = self.cross_entropy_loss(pred, gt)
+            loss_dict["semantics_loss_" + str(batch["model_idx"])] = self.cross_entropy_loss(pred, gt)
 
-        self.enrich_dict_with_model(loss_dict, batch["model_idx"])
+        # self.enrich_dict_with_model(loss_dict, batch["model_idx"])
         return loss_dict
 
     @torch.no_grad()
@@ -368,8 +368,10 @@ class NeuralSemanticFieldModel(Model):
         """
         if batch is None or "model" not in batch:
             assert self.fallback_model is not None
+            CONSOLE.print("Using fallback model for inference")
             model = self.fallback_model
         else:
+            # CONSOLE.print("Using batch model for inference")
             model = batch["model"]
         model.eval()
         return model

@@ -27,6 +27,7 @@ from nerfstudio.data.datamanagers.nesf_datamanager import (
 )
 from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
 from nerfstudio.models.base_model import Model, ModelConfig
+from nerfstudio.models.nesf import NeuralSemanticFieldConfig, NeuralSemanticFieldModel
 from nerfstudio.pipelines.base_pipeline import (
     Pipeline,
     VanillaPipeline,
@@ -45,7 +46,7 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """target class to instantiate"""
     datamanager: NesfDataManagerConfig = NesfDataManagerConfig()
     """specifies the datamanager config"""
-    model: ModelConfig = ModelConfig()
+    model: ModelConfig = NeuralSemanticFieldConfig()
     """specifies the model config"""
     images_per_all_evaluation = 10
     """how many images should be evaluated per scene when evaluating all images. -1 means all"""
@@ -89,7 +90,7 @@ class NesfPipeline(Pipeline):
         # TODO(ethan): get rid of scene_bounds from the model
         assert self.datamanager.train_datasets is not None, "Missing input dataset"
 
-        self._model = config.model.setup(
+        self._model: NeuralSemanticFieldModel = config.model.setup(
             scene_box=self.datamanager.train_datasets.get_set(0).scene_box,
             num_train_data=-1,
             metadata=self.datamanager.train_dataset.metadata,
@@ -98,7 +99,9 @@ class NesfPipeline(Pipeline):
 
         self.world_size = world_size
         if world_size > 1:
-            self._model = typing.cast(Model, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True))
+            self._model = typing.cast(
+                NeuralSemanticFieldModel, DDP(self._model, device_ids=[local_rank], find_unused_parameters=True)
+            )
             dist.barrier(device_ids=[local_rank])
 
     @property
