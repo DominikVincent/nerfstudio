@@ -264,6 +264,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         batch = self.train_pixel_samplers[model_idx].sample(image_batch)
         ray_indices = batch["indices"]
         batch["model_idx"] = model_idx
+        batch["model"] = image_batch["model"][0]
         ray_bundle = self.train_ray_generators[model_idx](ray_indices)
         return ray_bundle, batch
 
@@ -277,6 +278,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         batch = self.eval_pixel_samplers[model_idx].sample(image_batch)
         ray_indices = batch["indices"]
         batch["model_idx"] = model_idx
+        batch["model"] = image_batch["model"][0]
         ray_bundle = self.eval_ray_generators[model_idx](ray_indices)
         return ray_bundle, batch
 

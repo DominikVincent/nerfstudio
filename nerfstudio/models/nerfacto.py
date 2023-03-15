@@ -114,6 +114,8 @@ class NerfactoModelConfig(ModelConfig):
     """Whether use single jitter or not for the proposal networks."""
     predict_normals: bool = False
     """Whether to predict normals or not."""
+    name: str = "nerfacto"
+    """a name to identify the nerfacto model"""
 
 
 class NerfactoModel(Model):
