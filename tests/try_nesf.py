@@ -15,6 +15,8 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.data = DATA_PATH
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
+    trainConfig.logging.steps_per_log = 1
+    trainConfig.pipeline.model.rgb = False
 
     trainConfig.set_timestamp()
     trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data

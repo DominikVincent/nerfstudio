@@ -20,6 +20,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 
+from nerfstudio.models.base_model import Model
+
 
 def get_dict_to_torch(stuff: Any, device: Union[torch.device, str] = "cpu", exclude: Optional[List[str]] = None):
     """Set everything in the dict to the specified torch device.
@@ -37,6 +39,10 @@ def get_dict_to_torch(stuff: Any, device: Union[torch.device, str] = "cpu", excl
                 stuff[k] = get_dict_to_torch(v, device)
         return stuff
     if isinstance(stuff, torch.Tensor):
+        return stuff.to(device)
+    if isinstance(stuff, List):
+        return [get_dict_to_torch(v, device) for v in stuff]
+    if isinstance(stuff, Model):
         return stuff.to(device)
     return stuff
 

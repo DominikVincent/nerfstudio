@@ -31,7 +31,7 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
 from nerfstudio.models.base_model import Model
 from nerfstudio.utils.io import load_from_json
-from nerfstudio.utils.writer import EVENT_WRITERS, TensorboardWriter, WandbWriter
+from nerfstudio.utils.writer import put_config
 
 CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
@@ -186,6 +186,8 @@ class Nesf(DataParser):
         else:
             data_config = load_from_json(self.config.data_config / "data_config.json")
 
+        put_config("config", data_config, 0)
+        
         models = []
         data_parser_outputs = []
         for conf in data_config["config"]:
@@ -204,7 +206,7 @@ class Nesf(DataParser):
                 load_step=conf["load_step"],
                 data_dir=data_path,
                 config=conf["model_config"],
-            )
+            ).to("cpu")
 
             # get the list of semantic images. For each image there should be a semantic image.
             semantic_paths = []

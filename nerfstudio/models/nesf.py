@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 import lovely_tensors as lt
+import plotly.express as px
 import torch
 import torchvision
 from rich.console import Console
@@ -34,6 +35,7 @@ except ImportError:
 lt.monkey_patch()
 
 CONSOLE = Console(width=120)
+DEBUG_PLOT_SAMPLES = False
 
 
 @dataclass
@@ -52,21 +54,24 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """whether to use rgb as feature or not."""
     rgb_feature_dim: int = 8
     """the dimension of the rgb feature."""
-    use_feature_pos: bool = True
+    use_feature_pos: bool = False
     """whether to use pos as feature or not."""
     use_feature_dir: bool = False
     """whether to use viewing direction as feature or not."""
 
     feature_transformer_num_layers: int = 6
     """The number of encoding layers in the feature transformer."""
-    feature_transformer_num_heads: int = 8
+    feature_transformer_num_heads: int = 4
     """The number of multihead attention heads in the feature transformer."""
-    feature_transformer_dim_feed_forward: int = 128
+    feature_transformer_dim_feed_forward: int = 32
     """The dimension of the feedforward network model in the feature transformer."""
     feature_transformer_dropout_rate: float = 0.1
     """The dropout rate in the feature transformer."""
     feature_transformer_feature_dim: int = 64
     """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
+
+    space_partitioning: Literal["row_wise", "evenly"] = "evenly"
+    """How to partition the image space when rendering."""
 
 
 class NeuralSemanticFieldModel(Model):
@@ -206,18 +211,33 @@ class NeuralSemanticFieldModel(Model):
             outputs["rgb"] = semantics_colormap
 
             # print the count of the different labels
-            CONSOLE.print("Label counts:", torch.bincount(semantic_labels.flatten()))
+            # CONSOLE.print("Label counts:", torch.bincount(semantic_labels.flatten()))
 
         return outputs
 
     def forward(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None) -> Dict[str, torch.Tensor]:
         return self.get_outputs(ray_bundle, batch)
 
+    def enrich_dict_with_model(self, d: dict, model_idx: int) -> dict:
+        keys = list(d.keys())
+
+        for key in keys:
+            d[key + "_" + str(model_idx)] = d[key]
+        d["model_idx"] = model_idx
+
+        return d
+
     def get_metrics_dict(self, outputs, batch: Dict[str, Any]):
         metrics_dict = {}
+        if "eval_model_idx" in batch:
+            metrics_dict["eval_model_idx"] = batch["eval_model_idx"]
+
         if self.config.rgb:
             image = batch["image"].to(self.device)
             metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
+
+        self.enrich_dict_with_model(metrics_dict, batch["model_idx"])
+
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch: Dict[str, Any], metrics_dict=None):
@@ -228,13 +248,14 @@ class NeuralSemanticFieldModel(Model):
         else:
             pred = outputs["semantics"]
             gt = batch["semantics"][..., 0].long()
-            CONSOLE.print("GT labels:", torch.bincount(gt.flatten()).p)
-            CONSOLE.print(
-                "Pred labels:", torch.bincount(torch.argmax(torch.nn.functional.softmax(pred, dim=-1), dim=-1)).p
-            )
+            # CONSOLE.print("GT labels:", torch.bincount(gt.flatten()).p)
+            # CONSOLE.print(
+            #     "Pred labels:", torch.bincount(torch.argmax(torch.nn.functional.softmax(pred, dim=-1), dim=-1)).p
+            # )
             # print the unique values of the gt
-            loss_dict["semantics_loss"] = (self.cross_entropy_loss(pred, gt),)
+            loss_dict["semantics_loss"] = self.cross_entropy_loss(pred, gt)
 
+        self.enrich_dict_with_model(loss_dict, batch["model_idx"])
         return loss_dict
 
     @torch.no_grad()
@@ -248,15 +269,38 @@ class NeuralSemanticFieldModel(Model):
             :param batch: additional information of the batch here it includes at least the model
         """
 
+        def batch_evenly(max_length, batch_size):
+            indices = torch.arange(max_length)
+            final_indices = []
+            reverse_indices = torch.zeros(max_length, dtype=torch.long)
+
+            step_size = max_length // batch_size + 1
+            running_length = 0
+            for i in range(step_size):
+                ind = indices[i::step_size]
+                length_ind = ind.size()[0]
+                final_indices.append(ind)
+                reverse_indices[ind] = torch.arange(running_length, running_length + length_ind, dtype=torch.long)
+                running_length += length_ind
+
+            return torch.cat(final_indices, dim=0), reverse_indices
+
         num_rays_per_chunk = self.config.eval_num_rays_per_chunk
         image_height, image_width = camera_ray_bundle.origins.shape[:2]
         num_rays = len(camera_ray_bundle)
         outputs_lists = defaultdict(list)
+        if self.config.space_partitioning != "row_wise":
+            ray_order, reversed_ray_order = batch_evenly(num_rays, num_rays_per_chunk)
         # get permuted ind
         for i in range(0, num_rays, num_rays_per_chunk):
-            start_idx = i
-            end_idx = i + num_rays_per_chunk
-            ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
+            if self.config.space_partitioning != "row_wise":
+                indices = ray_order[i : i + num_rays_per_chunk]
+                ray_bundle = camera_ray_bundle.flatten()[indices]
+            else:
+                start_idx = i
+                end_idx = i + num_rays_per_chunk
+                ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
+
             outputs = self.forward(ray_bundle=ray_bundle, batch=batch)
             for output_name, output in outputs.items():  # type: ignore
                 outputs_lists[output_name].append(output)
@@ -265,7 +309,13 @@ class NeuralSemanticFieldModel(Model):
             if not torch.is_tensor(outputs_list[0]):
                 # TODO: handle lists of tensors as well
                 continue
-            outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
+            if self.config.space_partitioning != "row_wise":
+                unordered_output_tensor = torch.cat(outputs_list)
+                ordered_output_tensor = unordered_output_tensor[reversed_ray_order]
+            else:
+                ordered_output_tensor = torch.cat(outputs_list)  # type: ignore
+
+            outputs[output_name] = ordered_output_tensor.view(image_height, image_width, -1)  # type: ignore
         return outputs
 
     def get_image_metrics_and_images(
@@ -398,6 +448,16 @@ class FeatureGeneratorTorch(nn.Module):
             dir_encoding = self.dir_encoder(get_normalized_directions(directions))
             encodings.append(dir_encoding)
 
+        if DEBUG_PLOT_SAMPLES:
+            positions = ray_samples.frustums.get_positions()[density_mask]
+            # plot the positions with plotly
+            data = {
+                "x": positions[:, 0].detach().cpu().numpy(),
+                "y": positions[:, 1].detach().cpu().numpy(),
+                "z": positions[:, 2].detach().cpu().numpy(),
+            }
+            fig = px.scatter_3d(data, x="x", y="y", z="z")
+            fig.show()
         out = torch.cat(encodings, dim=1).unsqueeze(0)
         return out, weights, density_mask
 

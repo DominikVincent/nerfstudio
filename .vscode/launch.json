@@ -115,6 +115,17 @@
       "justMyCode": false
   },
   {
+    "name": "sweep NeSF",
+    "type": "python",
+    "request": "launch",
+    "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/sweep_nesf.py",
+    "console": "integratedTerminal",
+    "env": {
+      // "CUDA_LAUNCH_BLOCKING": "1"
+    },
+    "justMyCode": false
+},
+  {
       "name": "nerfacto",
       "type": "python",
       "request": "launch",

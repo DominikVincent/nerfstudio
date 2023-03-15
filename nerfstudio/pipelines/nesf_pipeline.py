@@ -47,6 +47,8 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: ModelConfig = ModelConfig()
     """specifies the model config"""
+    images_per_all_evaluation = 10
+    """how many images should be evaluated per scene when evaluating all images. -1 means all"""
 
 
 class NesfPipeline(Pipeline):
@@ -156,11 +158,12 @@ class NesfPipeline(Pipeline):
             step: current iteration step
         """
         self.eval()
-        image_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
+        image_idx, model_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
         assert "image_idx" not in metrics_dict
         metrics_dict["image_idx"] = image_idx
+        metrics_dict["model_idx"] = model_idx
         assert "num_rays" not in metrics_dict
         metrics_dict["num_rays"] = len(camera_ray_bundle)
         self.train()
@@ -175,12 +178,20 @@ class NesfPipeline(Pipeline):
         """
         self.eval()
         metrics_dict_list = []
-        num_images = sum(
-            [
-                len(fixed_indices_eval_dataloader)
-                for fixed_indices_eval_dataloader in self.datamanager.fixed_indices_eval_dataloaders
-            ]
+        num_images = (
+            min(
+                sum(
+                    [
+                        len(fixed_indices_eval_dataloader)
+                        for fixed_indices_eval_dataloader in self.datamanager.fixed_indices_eval_dataloaders
+                    ]
+                ),
+                len(self.datamanager.fixed_indices_eval_dataloaders) * self.config.images_per_all_evaluation,
+            )
+            if self.config.images_per_all_evaluation >= 0
+            else 999999999
         )
+
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
@@ -190,7 +201,9 @@ class NesfPipeline(Pipeline):
         ) as progress:
             task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
             for fixed_indices_eval_dataloader in self.datamanager.fixed_indices_eval_dataloaders:
-                for camera_ray_bundle, batch in fixed_indices_eval_dataloader:
+                for idx, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
+                    if idx >= self.config.images_per_all_evaluation and self.config.images_per_all_evaluation >= 0:
+                        break
                     # time this the following line
                     inner_start = time()
                     height, width = camera_ray_bundle.shape

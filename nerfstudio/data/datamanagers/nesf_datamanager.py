@@ -21,8 +21,7 @@ from nerfstudio.data.datamanagers.base_datamanager import (
     DataManager,
 )
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
-from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
-from nerfstudio.data.dataparsers.nesf_dataparser import Nesf
+from nerfstudio.data.dataparsers.nesf_dataparser import NerfstudioDataParserConfig, Nesf
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.datasets.nesf_dataset import NesfDataset, NesfItemDataset
 from nerfstudio.data.pixel_samplers import EquirectangularPixelSampler, PixelSampler
@@ -48,7 +47,7 @@ class NesfDataManagerConfig(InstantiateConfig):
 
     _target: Type = field(default_factory=lambda: NesfDataManager)
     """Target class to instantiate."""
-    dataparser: AnnotatedDataParserUnion = BlenderDataParserConfig()
+    dataparser: AnnotatedDataParserUnion = NerfstudioDataParserConfig()
     """Specifies the dataparser used to unpack the data."""
     train_num_rays_per_batch: int = 1024
     """Number of rays per batch to use per training iteration."""
@@ -75,7 +74,7 @@ class NesfDataManagerConfig(InstantiateConfig):
     """The scale factor for scaling spatial data such as images, mask, semantics
     along with relevant information about camera intrinsics
     """
-    steps_per_model: int = 10
+    steps_per_model: int = 6
     """Number of steps one model is queried before the next model is queried. The models are taken sequentially."""
 
 
@@ -122,6 +121,8 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.eval_datasets = self.create_eval_datasets()
         self.train_dataset = self.train_datasets
         self.eval_dataset = self.eval_datasets
+        self.eval_image_model = 0
+        self.eval_model = 0
         super().__init__()
 
     def create_train_datasets(self) -> NesfDataset:
@@ -262,26 +263,31 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         assert self.train_pixel_samplers[model_idx] is not None
         batch = self.train_pixel_samplers[model_idx].sample(image_batch)
         ray_indices = batch["indices"]
+        batch["model_idx"] = model_idx
         ray_bundle = self.train_ray_generators[model_idx](ray_indices)
         return ray_bundle, batch
 
     def next_eval(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
-        model_idx = self.step_to_dataset(step)
+        model_idx = self.eval_model % self.eval_datasets.set_count()
+        self.eval_model += 1
         image_batch = next(self.iter_eval_image_dataloaders[model_idx])
         assert self.eval_pixel_samplers[model_idx] is not None
         batch = self.eval_pixel_samplers[model_idx].sample(image_batch)
         ray_indices = batch["indices"]
+        batch["model_idx"] = model_idx
         ray_bundle = self.eval_ray_generators[model_idx](ray_indices)
         return ray_bundle, batch
 
     def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
-        model_idx = self.step_to_dataset(step)
+        model_idx = self.eval_image_model % self.eval_datasets.set_count()
+        self.eval_image_model += 1
+
         for camera_ray_bundle, batch in self.eval_dataloaders[model_idx]:
             assert camera_ray_bundle.camera_indices is not None
             image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
-            return image_idx, camera_ray_bundle, batch
+            return image_idx, model_idx, camera_ray_bundle, batch
         raise ValueError("No more eval images")
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:  # pylint: disable=no-self-use
