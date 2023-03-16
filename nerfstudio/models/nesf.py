@@ -60,6 +60,8 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """whether to use pos as feature or not."""
     use_feature_dir: bool = False
     """whether to use viewing direction as feature or not."""
+    use_feature_density: bool = False
+    """whether to use the [0-1] normalized density as a feature."""
 
     feature_transformer_num_layers: int = 6
     """The number of encoding layers in the feature transformer."""
@@ -115,6 +117,7 @@ class NeuralSemanticFieldModel(Model):
             rgb=self.config.use_feature_rgb,
             pos_encoding=self.config.use_feature_pos,
             dir_encoding=self.config.use_feature_dir,
+            density=self.config.use_feature_density,
         )
 
         # Feature Transformer
@@ -410,6 +413,7 @@ class FeatureGeneratorTorch(nn.Module):
         rgb: bool = True,
         pos_encoding: bool = True,
         dir_encoding: bool = True,
+        density: bool = True,
     ):
         super().__init__()
         self.aabb = Parameter(aabb, requires_grad=False)
@@ -417,6 +421,7 @@ class FeatureGeneratorTorch(nn.Module):
         self.rgb = rgb
         self.pos_encoding = pos_encoding
         self.dir_encoding = dir_encoding
+        self.density = density
 
         self.out_rgb_dim: int = out_rgb_dim
         self.linear = nn.Sequential(
@@ -456,6 +461,16 @@ class FeatureGeneratorTorch(nn.Module):
             rgb = self.linear(rgb)
             encodings.append(rgb)
 
+        if self.density:
+            density = field_outputs[FieldHeadNames.DENSITY][density_mask]
+            # normalize density between 0 and 1
+            density = (density - density.min()) / (density.max() - density.min())
+            # assert no nan and no inf values
+            assert not torch.isnan(density).any()
+            assert not torch.isinf(density).any()
+
+            encodings.append(density)
+
         if self.pos_encoding:
             positions = ray_samples.frustums.get_positions()[density_mask]
             positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
@@ -485,6 +500,7 @@ class FeatureGeneratorTorch(nn.Module):
         total_dim += self.out_rgb_dim if self.rgb else 0
         total_dim += self.pos_encoder.get_out_dim() if self.pos_encoding else 0
         total_dim += self.dir_encoder.get_out_dim() if self.dir_encoding else 0
+        total_dim += 1 if self.density else 0
         return total_dim
 
 
