@@ -10,6 +10,7 @@ from rich.console import Console
 from torch import Tensor, nn
 from torch.nn import Parameter
 from torchmetrics import PeakSignalNoiseRatio
+from torchmetrics.classification import MulticlassJaccardIndex
 from torchtyping import TensorType
 from typing_extensions import Literal
 
@@ -25,6 +26,7 @@ from nerfstudio.model_components.renderers import RGBRenderer, SemanticRenderer
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.models.nerfacto import NerfactoModel
 from nerfstudio.utils import profiler
+from nerfstudio.utils.writer import put_config
 
 try:
     import tinycudann as tcnn
@@ -103,6 +105,7 @@ class NeuralSemanticFieldModel(Model):
 
         # Metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
+        self.miou = MulticlassJaccardIndex(num_classes=len(self.semantics.classes))
 
         # Feature extractor
         # self.feature_model = FeatureGenerator()
@@ -129,10 +132,6 @@ class NeuralSemanticFieldModel(Model):
             activation=activation,
         )
 
-        # print parameter count of models
-        print("Feature Generator has", sum(p.numel() for p in self.feature_model.parameters()), "parameters")
-        print("Feature Transformer has", sum(p.numel() for p in self.feature_transformer.parameters()), "parameters")
-
         # The learnable parameter for the semantic class with low density. Should represent the logits.
         learned_value_dim = 3 if self.config.rgb else len(self.semantics.classes)
         self.learned_low_density_value = torch.nn.Parameter(torch.randn(learned_value_dim))
@@ -149,6 +148,19 @@ class NeuralSemanticFieldModel(Model):
 
         # count parameters
         total_params = sum(p.numel() for p in self.parameters())
+        put_config(
+            "network parameters",
+            {
+                "feature_generator_parameters": sum(p.numel() for p in self.feature_model.parameters()),
+                "feature_transformer_parameters": sum(p.numel() for p in self.feature_transformer.parameters()),
+                "total_parameters": total_params,
+            },
+            0,
+        )
+        CONSOLE.print("Feature Generator has", sum(p.numel() for p in self.feature_model.parameters()), "parameters")
+        CONSOLE.print(
+            "Feature Transformer has", sum(p.numel() for p in self.feature_transformer.parameters()), "parameters"
+        )
         CONSOLE.print("The number of NeSF parameters is: ", total_params)
 
         return
@@ -235,8 +247,11 @@ class NeuralSemanticFieldModel(Model):
         if self.config.rgb:
             image = batch["image"].to(self.device)
             metrics_dict["psnr_" + str(batch["model_idx"])] = self.psnr(outputs["rgb"], image)
-
-        # self.enrich_dict_with_model(metrics_dict, batch["model_idx"])
+        else:
+            # mIoU
+            metrics_dict["miou_" + str(batch["model_idx"])] = self.miou(
+                outputs["semantics"], batch["semantics"][..., 0].long()
+            )
 
         return metrics_dict
 
@@ -255,7 +270,6 @@ class NeuralSemanticFieldModel(Model):
             # print the unique values of the gt
             loss_dict["semantics_loss_" + str(batch["model_idx"])] = self.cross_entropy_loss(pred, gt)
 
-        # self.enrich_dict_with_model(loss_dict, batch["model_idx"])
         return loss_dict
 
     @torch.no_grad()
@@ -343,9 +357,12 @@ class NeuralSemanticFieldModel(Model):
             combined_semantics = torch.cat([semantics_colormap_gt, semantics_colormap], dim=1)
             images_dict["img"] = combined_semantics
             images_dict["semantics_colormap"] = outputs["semantics_colormap"]
+            images_dict["rgb_image"] = batch["image"]
 
-        # metrics_dict = {"psnr": float(psnr.item())}
-        metrics_dict = {}
+            outs = outputs["semantics"].reshape(-1, outputs["semantics"].shape[-1])
+            gt = batch["semantics"][..., 0].long().reshape(-1)
+            miou = self.miou(outs, gt)
+            metrics_dict = {"miou": float(miou.item())}
 
         return metrics_dict, images_dict
 

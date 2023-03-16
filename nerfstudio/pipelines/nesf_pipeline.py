@@ -48,7 +48,7 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: ModelConfig = NeuralSemanticFieldConfig()
     """specifies the model config"""
-    images_per_all_evaluation = 10
+    images_per_all_evaluation = 1
     """how many images should be evaluated per scene when evaluating all images. -1 means all"""
 
 

@@ -124,7 +124,7 @@
       // "CUDA_LAUNCH_BLOCKING": "1"
     },
     "justMyCode": false
-},
+  },
   {
       "name": "nerfacto",
       "type": "python",
@@ -133,6 +133,18 @@
       "args": ["nerfacto", "--data", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nerfstudio/poster", "--vis", "wandb"],
       "console": "integratedTerminal",
       "justMyCode": false
+  },
+  {
+      "name": "eval",
+      "type": "python",
+      "request": "launch",
+      "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/eval.py",
+      "args": ["--load-config", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-15_194428/config.yml"],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "CUDA_VISIBLE_DEVICES": "1"
+    }
   }
   ]
 }

@@ -1,0 +1,10 @@
+{
+  "experiment_name": "/tmp",
+  "method_name": "nesf",
+  "checkpoint": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-15_194428/nerfstudio_models/step-000029999.ckpt",
+  "results": {
+    "miou": 0.6737909317016602,
+    "num_rays_per_sec": 1585.8829345703125,
+    "fps": 0.024198653176426888
+  }
+}
