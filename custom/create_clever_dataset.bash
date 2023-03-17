@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sudo docker run --rm --interactive --gpus '"device=0"' \
+sudo docker run --rm --interactive --gpus '"device=1"' \
             --env KUBRIC_USE_GPU=1 \
             --volume "$(pwd):/kubric" \
             --volume "/data/vision/polina/scratch/clintonw/datasets/kubric-public:/kubric_data" \

@@ -87,24 +87,32 @@ def main():
         logging.info("Choosing from %d training backgrounds...", len(train_backgrounds))
     else:
         logging.info("Choosing from %d held-out backgrounds...", len(test_backgrounds))
-
+    print("Choose background")
     for i in range(FLAGS.start_id, FLAGS.num_trajectories + FLAGS.start_id):
         # try adding the object 3 times
         try_num = 0
+        print(i)
         while try_num < 3:
             try_num += 1
             try:
                     # sleep for 5s
-                sleep(5)
-                print("Trajectory", i)
+                # sleep(5)
+                print(" ############### Trajectory: ", i)
                 # --- Common setups & resources
                 FLAGS.job_dir = f"{base_dir}/{i}"
+                print("Job dir: ", FLAGS.job_dir)
+                # check if folder is empty and if it is delete it
+                if osp.exists(FLAGS.job_dir) and len(os.listdir(FLAGS.job_dir)) == 0:
+                    print("Job dir exists and is empty: ", FLAGS.job_dir)
+                    shutil.rmtree(FLAGS.job_dir)
+                    
                 if osp.exists(FLAGS.job_dir):
+                    print("Job dir exists: ", FLAGS.job_dir)
                     if FLAGS.overwrite:
                         shutil.rmtree(FLAGS.job_dir)
                     else:
-                        continue
-
+                        break
+                
                 scene, rng, output_dir, scratch_dir = kb.setup(FLAGS)
                 print("setup done")
                 simulator = PyBullet(scene, scratch_dir)
@@ -310,12 +318,14 @@ def main():
                     },
                 )
 
-                shutil.rmtree(scratch_dir)
-                kb.done()
-            except:
-                sleep(1)
+        #         shutil.rmtree(scratch_dir)
+        #         kb.done()
+            except Exception as e:
+                print("Failure due to error: ", e)
+                # sleep(1)
                 continue
-        
+        if try_num >=3:
+            print("################# Failed to render scene", i, " after ", try_num, " tries. Skipping.")
     try:
         pb.disconnect()
     except Exception:  # pylint: disable=broad-except

@@ -24,11 +24,11 @@ from time import time
 from typing import Any, Dict, List, Optional, Union
 
 import torch
-import wandb
 from rich.console import Console
 from torch.utils.tensorboard import SummaryWriter
 from torchtyping import TensorType
 
+import wandb
 from nerfstudio.configs import base_config as cfg
 from nerfstudio.utils.decorators import check_main_thread, decorate_all
 from nerfstudio.utils.printing import human_format
@@ -283,7 +283,7 @@ class WandbWriter(Writer):
     """WandDB Writer Class"""
 
     def __init__(self, log_dir: Path):
-        wandb.init(project="nerfstudio-project", dir=str(log_dir), reinit=True)
+        wandb.init(project="nesf-models-project", dir=str(log_dir), reinit=True)
         wandb.save("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/nerfstudio/models/nesf.py")
         wandb.save("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/nerfstudio/")
 
