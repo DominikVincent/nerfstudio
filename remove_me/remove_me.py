@@ -58,11 +58,11 @@ class NeuralSemanticFieldConfig(ModelConfig):
     use_feature_pos: bool = True
     """whether to use pos as feature or not."""
     use_feature_dir: bool = True
-    """whether to use viewing direction as feature or not."""
-    use_feature_density: bool = True
+    """whether to use viewing True as feature or not."""
+    use_feature_density: bool = False
     """whether to use the [0-1] normalized density as a feature."""
 
-    feature_transformer_num_layers: int = 6
+    feature_transformer_num_layers: int = 4
     """The number of encoding layers in the feature transformer."""
     feature_transformer_num_heads: int = 4
     """The number of multihead attention heads in the feature transformer."""
@@ -82,7 +82,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """The dimension of the feedforward network model in the feature transformer."""
     decoder_feature_transformer_dropout_rate: float = 0.1
     """The dropout rate in the feature transformer."""
-    decoder_feature_transformer_feature_dim: int = 64
+    decoder_feature_transformer_feature_dim: int = 32
     """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
 
     pretrain: bool = False
@@ -165,17 +165,13 @@ class NeuralSemanticFieldModel(Model):
                 pretrain=self.config.pretrain,
                 mask_ratio=self.config.mask_ratio,
             )
-            self.head = torch.nn.Sequential(
-                torch.nn.Linear(self.decoder.get_out_dim(), output_size),
-                torch.nn.ReLU(),
-            )
         else:
             self.decoder = torch.nn.Identity()
 
-            self.head = torch.nn.Sequential(
-                torch.nn.Linear(self.feature_transformer.get_out_dim(), output_size),
-                torch.nn.ReLU(),
-            )
+        self.head = torch.nn.Sequential(
+            torch.nn.Linear(self.feature_transformer.get_out_dim(), output_size),
+            torch.nn.ReLU(),
+        )
         # The learnable parameter for the semantic class with low density. Should represent the logits.
         learned_value_dim = 3 if self.config.rgb else len(self.semantics.classes)
         self.learned_low_density_value = torch.nn.Parameter(torch.randn(learned_value_dim))
@@ -197,8 +193,6 @@ class NeuralSemanticFieldModel(Model):
             {
                 "feature_generator_parameters": sum(p.numel() for p in self.feature_model.parameters()),
                 "feature_transformer_parameters": sum(p.numel() for p in self.feature_transformer.parameters()),
-                "decoder_parameters": sum(p.numel() for p in self.decoder.parameters()),
-                "head_parameters": sum(p.numel() for p in self.head.parameters()),
                 "total_parameters": total_params,
             },
             0,
@@ -219,8 +213,7 @@ class NeuralSemanticFieldModel(Model):
             "feature_network": list(self.feature_model.parameters()),
             "feature_transformer": list(self.feature_transformer.parameters()),
             "learned_low_density_params": [self.learned_low_density_value],
-            "decoder": list(self.decoder.parameters()),
-            "head": list(self.head.parameters()),
+            "head": list(self.decoder.parameters()) + list(self.head.parameters()),
         }
 
     @profiler.time_function
@@ -247,19 +240,6 @@ class NeuralSemanticFieldModel(Model):
             x, mask, ids_restore = self.feature_transformer(outs)
             x = self.decoder(x, ids_restore)
             field_outputs = self.head(x)
-
-            # comment to investigate how random masking works
-            # # take x and replace mask_ratio of its element with random values in [0,1]
-            # num_cols_to_mask = int(outs.shape[1] * self.config.mask_ratio)
-            # indices = torch.randperm(outs.shape[1])[:num_cols_to_mask]
-
-            # # repeat learned low density value to get the shape of the mask
-            # ldv = torch.nn.functional.relu(self.learned_low_density_value)
-            # outs[:, indices, :] = ldv.repeat(outs.shape[0], num_cols_to_mask, 1)
-            # # random masking
-            # # outs[:, indices, :] = torch.rand(outs.shape[0], num_cols_to_mask, outs.shape[2], device=self.device)
-
-            # field_outputs = outs
         else:
             field_encodings = self.feature_transformer(outs)
             field_encodings = self.decoder(field_encodings)
@@ -611,7 +591,7 @@ class TransformerEncoderModel(torch.nn.Module):
         self.pretrain = pretrain
         self.mask_ratio = mask_ratio
         if self.pretrain:
-            self.mask_token = torch.nn.Parameter(torch.randn(1, 1, input_size), requires_grad=True)
+            self.mask_token = torch.nn.Parameter(torch.randn(1, 1, feature_dim), requires_grad=True)
             torch.nn.init.normal_(self.mask_token, std=0.02)
 
     def random_masking(self, x, mask_ratio):
@@ -658,11 +638,6 @@ class TransformerEncoderModel(torch.nn.Module):
         """
 
         encode = ids_restore is None
-        # if encode:
-        #     CONSOLE.print("Encoding", style="bold")
-        # else:
-        #     CONSOLE.print("Decoding", style="bold")
-
         mask = None
         if self.pretrain and encode:
             x, mask, ids_restore = self.random_masking(x, self.mask_ratio)
@@ -671,7 +646,6 @@ class TransformerEncoderModel(torch.nn.Module):
             x_ = torch.cat([x, mask_tokens], dim=1)  # no cls token
             x = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]))  # unshuffle
 
-        # CONSOLE.print(f"Input shape: {x.shape}")
         x = self.feature_dim_layer(x)
 
         # Apply the transformer encoder. Last step is layer normalization

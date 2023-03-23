@@ -1,0 +1,29 @@
+#!/bin/bash
+
+source /data/vision/polina/projects/wmh/dhollidt/conda/bin/activate
+conda activate nerfstudio3
+
+ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11 \
+	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
+	--vis wandb \
+	--pipeline.datamanager.steps-per-model 1 \
+	--pipeline.model.rgb True \
+	--pipeline.model.pretrain True  \
+	--pipeline.model.use-feature-rgb True \
+	--pipeline.model.use-feature-dir True \
+	--pipeline.model.use-feature-pos True \
+	--pipeline.model.use-feature-density True \
+	--pipeline.model.rgb_feature_dim 8 \
+	--pipeline.model.space_partitioning "evenly" \
+	--pipeline.model.feature_transformer_num_layers 4 \
+	--pipeline.model.feature_transformer_num_heads 4 \
+	--pipeline.model.feature_transformer_dim_feed_forward 64 \
+	--pipeline.model.feature_transformer_dropout_rate 0.1 \
+	--pipeline.model.feature_transformer_feature_dim 64 \
+	--pipeline.model.decoder_feature_transformer_num_layers 2 \
+	--pipeline.model.decoder_feature_transformer_num_heads 2 \
+	--pipeline.model.decoder_feature_transformer_dim_feed_forward 32 \
+	--pipeline.model.decoder_feature_transformer_dropout_rate 0.1 \
+	--pipeline.model.decoder_feature_transformer_feature_dim 32 \
+	nesf-data \
+	--data-config /data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json

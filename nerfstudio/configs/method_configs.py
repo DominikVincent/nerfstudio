@@ -24,7 +24,7 @@ import tyro
 from nerfacc import ContractionType
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
-from nerfstudio.configs.base_config import ViewerConfig
+from nerfstudio.configs.base_config import LoggingConfig, ViewerConfig
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
 from nerfstudio.data.datamanagers.depth_datamanager import DepthDataManagerConfig
 from nerfstudio.data.datamanagers.nesf_datamanager import NesfDataManagerConfig
@@ -58,7 +58,6 @@ from nerfstudio.models.vanilla_nerf import NeRFModel, VanillaModelConfig
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 from nerfstudio.pipelines.dynamic_batch import DynamicBatchPipelineConfig
 from nerfstudio.pipelines.nesf_pipeline import NesfPipelineConfig
-from nerfstudio.configs.base_config import LoggingConfig
 
 method_configs: Dict[str, TrainerConfig] = {}
 descriptions = {
@@ -333,7 +332,7 @@ method_configs["nesf"] = TrainerConfig(
     method_name="nesf",
     experiment_name="/tmp",
     steps_per_eval_batch=100,
-    steps_per_eval_image=500,
+    steps_per_eval_image=250,
     steps_per_save=500,
     max_num_iterations=30000,
     steps_per_eval_all_images=10000000,
@@ -343,12 +342,12 @@ method_configs["nesf"] = TrainerConfig(
             dataparser=NesfDataParserConfig(),
             train_num_rays_per_batch=64,
             eval_num_rays_per_batch=64,
-            steps_per_model=10,
+            steps_per_model=1,
             camera_optimizer=CameraOptimizerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
         ),
-        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=256, rgb=True),
+        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=256, rgb=True, pretrain=True),
     ),
     optimizers={
         "feature_network": {
@@ -362,6 +361,16 @@ method_configs["nesf"] = TrainerConfig(
             # "scheduler": None,
         },
         "learned_low_density_params": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
+        },
+        "decoder": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
+        },
+        "head": {
             "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
             "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
             # "scheduler": None,

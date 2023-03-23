@@ -5,7 +5,8 @@ from nerfstudio.configs.method_configs import method_configs
 
 
 def run_nesf(vis: str = "wandb"):
-    data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config.json")
+    # data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config.json")
+    data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json")
 
     OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/")
     DATA_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11")
@@ -15,8 +16,6 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.data = DATA_PATH
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
-    trainConfig.logging.steps_per_log = 1
-    trainConfig.pipeline.model.rgb = False
 
     trainConfig.set_timestamp()
     trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data

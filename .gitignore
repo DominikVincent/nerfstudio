@@ -613,3 +613,8 @@ playground/wandb
 playground/data
 
 scripts/wandb
+
+train_scripts/logs
+train_scripts/out_nerfacto
+train_scripts/wandb
+

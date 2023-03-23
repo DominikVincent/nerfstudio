@@ -283,7 +283,7 @@ class WandbWriter(Writer):
     """WandDB Writer Class"""
 
     def __init__(self, log_dir: Path):
-        wandb.init(project="nesf-models-project", dir=str(log_dir), reinit=True)
+        wandb.init(project="mae-models-project", dir=str(log_dir), reinit=True)
         wandb.save("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/nerfstudio/models/nesf.py")
         wandb.save("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/nerfstudio/")
 
