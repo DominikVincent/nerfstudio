@@ -3,11 +3,14 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass, field
 from inspect import Parameter
+from pathlib import Path
 from time import time
 from typing import Any, Dict, Optional, Type
 
+import numpy as np
 import torch
 import torch.distributed as dist
+from PIL import Image
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -33,7 +36,7 @@ from nerfstudio.pipelines.base_pipeline import (
     VanillaPipeline,
     VanillaPipelineConfig,
 )
-from nerfstudio.utils import profiler
+from nerfstudio.utils import profiler, writer
 
 CONSOLE = Console(width=120)
 
@@ -46,10 +49,12 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """target class to instantiate"""
     datamanager: NesfDataManagerConfig = NesfDataManagerConfig()
     """specifies the datamanager config"""
-    model: ModelConfig = NeuralSemanticFieldConfig()
+    model: NeuralSemanticFieldConfig = NeuralSemanticFieldConfig()
     """specifies the model config"""
     images_per_all_evaluation = 1
     """how many images should be evaluated per scene when evaluating all images. -1 means all"""
+    save_images = False
+    """save images during all image evaluation"""
 
 
 class NesfPipeline(Pipeline):
@@ -162,6 +167,8 @@ class NesfPipeline(Pipeline):
         """
         self.eval()
         image_idx, model_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
+        batch["image_idx"] = image_idx
+        batch["model_idx"] = model_idx
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
         assert "image_idx" not in metrics_dict
@@ -173,11 +180,12 @@ class NesfPipeline(Pipeline):
         return metrics_dict, images_dict
 
     @profiler.time_function
-    def get_average_eval_image_metrics(self, step: Optional[int] = None):
+    def get_average_eval_image_metrics(self, step: Optional[int] = None, save_path: Optional[Path] = None):
         """Iterate over all the images in the eval dataset and get the average.
 
         Returns:
             metrics_dict: dictionary of metrics
+            save_path: path to save the images to. if None, do not save images.
         """
         self.eval()
         metrics_dict_list = []
@@ -194,7 +202,7 @@ class NesfPipeline(Pipeline):
             if self.config.images_per_all_evaluation >= 0
             else 999999999
         )
-
+        step = 0
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
@@ -203,22 +211,43 @@ class NesfPipeline(Pipeline):
             transient=True,
         ) as progress:
             task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
-            for fixed_indices_eval_dataloader in self.datamanager.fixed_indices_eval_dataloaders:
-                for idx, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
-                    if idx >= self.config.images_per_all_evaluation and self.config.images_per_all_evaluation >= 0:
+            for model_idx, fixed_indices_eval_dataloader in enumerate(self.datamanager.fixed_indices_eval_dataloaders):
+                for image_idx, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
+                    batch["model_idx"] = model_idx
+                    batch["image_idx"] = image_idx
+
+                    if (
+                        image_idx >= self.config.images_per_all_evaluation
+                        and self.config.images_per_all_evaluation >= 0
+                    ):
                         break
                     # time this the following line
                     inner_start = time()
                     height, width = camera_ray_bundle.shape
                     num_rays = height * width
                     outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
-                    metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
+                    metrics_dict, image_dict = self.model.get_image_metrics_and_images(outputs, batch)
                     assert "num_rays_per_sec" not in metrics_dict
                     metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)
                     fps_str = "fps"
                     assert fps_str not in metrics_dict
                     metrics_dict[fps_str] = metrics_dict["num_rays_per_sec"] / (height * width)
                     metrics_dict_list.append(metrics_dict)
+
+                    img = image_dict["img"]
+                    writer.put_image("test_image", img, step=step)
+                    writer.put_dict("test_image", metrics_dict, step=step)
+                    img = img.cpu().numpy()
+                    if save_path is not None:
+                        file_path = save_path / f"{model_idx:03d}" / f"{image_idx:04d}.png"
+                        # create the directory if it does not exist
+                        if not file_path.parent.exists():
+                            file_path.parent.mkdir(parents=True)
+                        # save the image
+                        img_pil = Image.fromarray((img * 255).astype(np.uint8))
+                        img_pil.save(file_path)
+                    writer.write_out_storage()
+                    step += 1
                     progress.advance(task)
         # average the metrics list
         metrics_dict = {}

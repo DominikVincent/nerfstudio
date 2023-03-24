@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Type
+from typing import Dict, List, Type, cast
 
 import torch
 from rich.console import Console
@@ -151,6 +151,10 @@ def _load_model(load_dir, load_step, data_dir: Path, config: Dict, local_rank: i
         ),
         model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
     )
+    pipeline.datamanager.dataparser = cast(NerfstudioDataParserConfig, pipeline.datamanager.dataparser)
+    pipeline.datamanager.dataparser.train_split_percentage = config.get(
+        "train_split", pipeline.datamanager.dataparser.train_split_percentage
+    )
 
     device = "cpu" if world_size == 0 else f"cuda:{local_rank}"
     pipeline = pipeline.setup(device=device, test_mode="inference", world_size=world_size, local_rank=local_rank)
@@ -187,7 +191,7 @@ class Nesf(DataParser):
             data_config = load_from_json(self.config.data_config / "data_config.json")
 
         put_config("config", data_config, 0)
-        
+
         models = []
         data_parser_outputs = []
         for conf in data_config["config"]:
@@ -195,7 +199,9 @@ class Nesf(DataParser):
             # TODO find a more global solution for casting instead of just one key
             nerfstudio.config.data = Path(nerfstudio.config.data)
 
-            dataparser_output = nerfstudio.get_dataparser_outputs()
+            dataparser_output = nerfstudio.get_dataparser_outputs(
+                split=conf.get("set_type", "train")
+            )
             models.append({"load_dir": conf["load_dir"], "load_step": conf["load_step"], "data_parser": nerfstudio})
             # TODO maybe load model
 

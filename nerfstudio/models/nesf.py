@@ -5,11 +5,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
 import lovely_tensors as lt
 import plotly.express as px
 import torch
+import torch.nn.functional as F
 import torchvision
 from rich.console import Console
 from torch import Tensor, nn
 from torch.nn import Parameter
-from torchmetrics import PeakSignalNoiseRatio
+from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchmetrics.classification import MulticlassJaccardIndex
 from typing_extensions import Literal
 
@@ -87,7 +88,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
 
     pretrain: bool = False
     """Flag indicating whether the model is in pretraining mode or not."""
-    mask_ratio: float = 0.75
+    mask_ratio: float = 0.0
     """The ratio of pixels that are masked out during pretraining."""
 
     space_partitioning: Literal["row_wise", "evenly"] = "evenly"
@@ -123,6 +124,7 @@ class NeuralSemanticFieldModel(Model):
 
         # Metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
+        self.ssim = StructuralSimilarityIndexMeasure(data_range=1.0)
         self.miou = MulticlassJaccardIndex(num_classes=len(self.semantics.classes))
 
         # Feature extractor
@@ -316,13 +318,23 @@ class NeuralSemanticFieldModel(Model):
             metrics_dict["eval_model_idx"] = batch["eval_model_idx"]
 
         if self.config.rgb:
-            image = batch["image"].to(self.device)
-            metrics_dict["psnr_" + str(batch["model_idx"])] = self.psnr(outputs["rgb"], image)
+            with torch.no_grad():
+                image = batch["image"].to(self.device)
+                metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
+                metrics_dict["psnr_" + str(batch["model_idx"])] = metrics_dict["psnr"]
+
+                metrics_dict["mse"] = F.mse_loss(outputs["rgb"], image)
+                metrics_dict["mse_" + str(batch["model_idx"])] = metrics_dict["mse"]
+
+                metrics_dict["mae"] = F.l1_loss(outputs["rgb"], image)
+                metrics_dict["mae_" + str(batch["model_idx"])] = metrics_dict["mae"]
+
         else:
-            # mIoU
-            metrics_dict["miou_" + str(batch["model_idx"])] = self.miou(
-                outputs["semantics"], batch["semantics"][..., 0].long()
-            )
+            with torch.no_grad():
+                # mIoU
+                metrics_dict["miou_" + str(batch["model_idx"])] = self.miou(
+                    outputs["semantics"], batch["semantics"][..., 0].long()
+                )
 
         return metrics_dict
 
@@ -425,8 +437,19 @@ class NeuralSemanticFieldModel(Model):
             image = torch.moveaxis(image, -1, 0)[None, ...]
             rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
 
-            psnr = self.psnr(image, rgb)
-            metrics_dict["psnr"] = float(psnr.item())
+            with torch.no_grad():
+                psnr = self.psnr(image, rgb)
+                metrics_dict["psnr"] = float(psnr.item())
+                # metrics_dict["psnr_" + str(batch["model_idx"])] = metrics_dict["psnr"]
+
+                metrics_dict["mse"] = F.mse_loss(image, rgb)
+                # metrics_dict["mse_" + str(batch["model_idx"])] = metrics_dict["mse"]
+
+                metrics_dict["mae"] = F.l1_loss(image, rgb)
+                # metrics_dict["mae_" + str(batch["model_idx"])] = metrics_dict["mae"]
+
+                metrics_dict["ssim"] = self.ssim(image, rgb)
+                # metrics_dict["ssim_" + str(batch["model_idx"])] = metrics_dict["ssim"]
 
         else:
             semantics_colormap_gt = self.semantics.colors[batch["semantics"].squeeze(-1)].to(self.device)
