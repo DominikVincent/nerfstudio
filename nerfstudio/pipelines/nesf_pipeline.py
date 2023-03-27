@@ -51,7 +51,7 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: NeuralSemanticFieldConfig = NeuralSemanticFieldConfig()
     """specifies the model config"""
-    images_per_all_evaluation = 1
+    images_per_all_evaluation = 15
     """how many images should be evaluated per scene when evaluating all images. -1 means all"""
     save_images = False
     """save images during all image evaluation"""
@@ -180,7 +180,7 @@ class NesfPipeline(Pipeline):
         return metrics_dict, images_dict
 
     @profiler.time_function
-    def get_average_eval_image_metrics(self, step: Optional[int] = None, save_path: Optional[Path] = None):
+    def get_average_eval_image_metrics(self, step: Optional[int] = None, save_path: Optional[Path] = None, wandb=False):
         """Iterate over all the images in the eval dataset and get the average.
 
         Returns:
@@ -235,8 +235,11 @@ class NesfPipeline(Pipeline):
                     metrics_dict_list.append(metrics_dict)
 
                     img = image_dict["img"]
-                    writer.put_image("test_image", img, step=step)
-                    writer.put_dict("test_image", metrics_dict, step=step)
+                    if wandb:
+                        writer.put_image("test_image", img, step=step)
+                        writer.put_dict("test_image", metrics_dict, step=step)
+                        writer.write_out_storage()
+
                     img = img.cpu().numpy()
                     if save_path is not None:
                         file_path = save_path / f"{model_idx:03d}" / f"{image_idx:04d}.png"
@@ -246,7 +249,6 @@ class NesfPipeline(Pipeline):
                         # save the image
                         img_pil = Image.fromarray((img * 255).astype(np.uint8))
                         img_pil.save(file_path)
-                    writer.write_out_storage()
                     step += 1
                     progress.advance(task)
         # average the metrics list

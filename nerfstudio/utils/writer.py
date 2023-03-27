@@ -39,6 +39,14 @@ EVENT_WRITERS = []
 EVENT_STORAGE = []
 GLOBAL_BUFFER = {}
 
+def reset_writer():
+    write_out_storage()
+    EVENT_WRITERS.clear()
+    EVENT_STORAGE.clear()
+    GLOBAL_BUFFER.clear()
+    if wandb.run is not None:
+        print("Finishing wandb run")
+        wandb.run.finish()
 
 class EventName(enum.Enum):
     """Names of possible events that can be logged via Local Writer for convenience.
@@ -283,7 +291,13 @@ class WandbWriter(Writer):
     """WandDB Writer Class"""
 
     def __init__(self, log_dir: Path):
-        wandb.init(project="mae-models-project", dir=str(log_dir), reinit=True)
+        if wandb.run is None:
+            wandb.init(project="mae-models-project", dir=str(log_dir), reinit=True)
+        print(wandb.run)
+        print("Run ID:", wandb.run.id)
+        print("Run name:", wandb.run.name)
+        print("Project name:", wandb.run.project)
+        print("Run tags:", wandb.run.tags)
         wandb.save("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/nerfstudio/models/nesf.py")
         wandb.save("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/nerfstudio/")
 
@@ -292,6 +306,13 @@ class WandbWriter(Writer):
         wandb.log({name: wandb.Image(image)}, step=step)
 
     def write_scalar(self, name: str, scalar: Union[float, torch.Tensor], step: int) -> None:
+        # CONSOLE.log(f"writing scalar {name} with value {scalar} at step {step} to wandb")
+        # CONSOLE.log("wandb run: ", wandb.run)
+        # print("Run ID:", wandb.run.id)
+        # print("Run name:", wandb.run.name)
+        # print("Project name:", wandb.run.project)
+        # print("Run tags:", wandb.run.tags)
+        # print("name: ", name, ": ", scalar, " at step: ", step)
         wandb.log({name: scalar}, step=step)
 
     def write_config(self, name: str, config_dict: Dict[str, Any], step: int):

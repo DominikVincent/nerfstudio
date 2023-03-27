@@ -32,7 +32,7 @@ class ComputePSNR:
 
     def main(self) -> None:
         """Main function."""
-        writer.setup_event_writer(self.use_wandb, False, log_dir="logs")
+        writer.setup_event_writer(self.use_wandb, is_tensorboard_enabled=False, log_dir="logs")
 
         writer.setup_local_writer(
             LoggingConfig(local_writer=LocalWriterConfig(enable=False)), max_iter=100000, banner_messages=["HERRO"]
@@ -40,11 +40,12 @@ class ComputePSNR:
 
         config, pipeline, checkpoint_path = eval_setup(self.load_config)
         writer.put_config("config", dataclasses.asdict(config), step=0)
+        print(config)
         assert self.output_path.suffix == ".json"
         if self.save_images:
-            metrics_dict = pipeline.get_average_eval_image_metrics(save_path=self.output_path.parent)
+            metrics_dict = pipeline.get_average_eval_image_metrics(save_path=self.output_path.parent, wandb=self.use_wandb)
         else:
-            metrics_dict = pipeline.get_average_eval_image_metrics()
+            metrics_dict = pipeline.get_average_eval_image_metrics(wandb=self.use_wandb)
 
         # log the final results
         print(metrics_dict)

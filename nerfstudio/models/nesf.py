@@ -62,6 +62,8 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """whether to use viewing direction as feature or not."""
     use_feature_density: bool = True
     """whether to use the [0-1] normalized density as a feature."""
+    density_threshold: float = 0.5
+    """The threshold value for which to filter out samples."""
 
     feature_transformer_num_layers: int = 6
     """The number of encoding layers in the feature transformer."""
@@ -88,7 +90,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
 
     pretrain: bool = False
     """Flag indicating whether the model is in pretraining mode or not."""
-    mask_ratio: float = 0.0
+    mask_ratio: float = 0.5
     """The ratio of pixels that are masked out during pretraining."""
 
     space_partitioning: Literal["row_wise", "evenly"] = "evenly"
@@ -136,6 +138,7 @@ class NeuralSemanticFieldModel(Model):
             pos_encoding=self.config.use_feature_pos,
             dir_encoding=self.config.use_feature_dir,
             density=self.config.use_feature_density,
+            density_threshold=self.config.density_threshold,
         )
 
         # Feature Transformer
@@ -233,7 +236,7 @@ class NeuralSemanticFieldModel(Model):
         # TODO do semantic rendering
         model: Model = self.get_model(batch)
 
-        outs, weights, density_mask = self.feature_model(ray_bundle, model)
+        outs, weights, density_mask, misc = self.feature_model(ray_bundle, model)
         # CONSOLE.print("dense values: ", (density_mask).sum().item(), "/", density_mask.numel())
 
         # assert outs is not nan or not inf
@@ -251,15 +254,20 @@ class NeuralSemanticFieldModel(Model):
             field_outputs = self.head(x)
 
             # comment to investigate how random masking works
-            # # take x and replace mask_ratio of its element with random values in [0,1]
+            # take x and replace mask_ratio of its element with random values in [0,1]
             # num_cols_to_mask = int(outs.shape[1] * self.config.mask_ratio)
             # indices = torch.randperm(outs.shape[1])[:num_cols_to_mask]
 
             # # repeat learned low density value to get the shape of the mask
             # ldv = torch.nn.functional.relu(self.learned_low_density_value)
-            # outs[:, indices, :] = ldv.repeat(outs.shape[0], num_cols_to_mask, 1)
+            # outs[:, indices, :] = 0.000001 * ldv.repeat(outs.shape[0], num_cols_to_mask, 1)
             # # random masking
             # # outs[:, indices, :] = torch.rand(outs.shape[0], num_cols_to_mask, outs.shape[2], device=self.device)
+            # # mask with mean value
+            # print("ldv: ", misc["rgb"].shape)
+            # ldv = torch.mean(misc["rgb"].view(-1, 3), dim=0)
+            # print("ldv: ", ldv.shape, " outs: ", outs.shape)
+            # outs[:, indices, :] = ldv.repeat(outs.shape[0], num_cols_to_mask, 1)
 
             # field_outputs = outs
         else:
@@ -271,7 +279,9 @@ class NeuralSemanticFieldModel(Model):
             # debug rgb
             rgb = torch.empty((*density_mask.shape, 3), device=self.device)
             rgb[density_mask] = field_outputs
-            rgb[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value)
+            # rgb[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value)
+            rgb[~density_mask] = misc["rgb"][~density_mask]
+
             rgb = self.renderer_rgb(rgb, weights=weights)
             outputs["rgb"] = rgb
         else:
@@ -548,6 +558,7 @@ class FeatureGeneratorTorch(nn.Module):
         else:
             raise NotImplementedError("Only NerfactoModel is supported for now")
 
+        misc = {"rgb": field_outputs[FieldHeadNames.RGB], "density": field_outputs[FieldHeadNames.DENSITY]}
         density = field_outputs[FieldHeadNames.DENSITY]
         density_mask = (density > self.density_threshold).squeeze(-1)
 
@@ -590,7 +601,7 @@ class FeatureGeneratorTorch(nn.Module):
             fig = px.scatter_3d(data, x="x", y="y", z="z")
             fig.show()
         out = torch.cat(encodings, dim=1).unsqueeze(0)
-        return out, weights, density_mask
+        return out, weights, density_mask, misc
 
     def get_out_dim(self) -> int:
         total_dim = 0

@@ -247,6 +247,9 @@ class Trainer:
                 CONSOLE.print("Use ctrl+c to quit", justify="center")
                 self._always_render(step)
 
+        writer.reset_writer()
+        return
+
     @check_main_thread
     def _always_render(self, step):
         if self.config.is_viewer_enabled():

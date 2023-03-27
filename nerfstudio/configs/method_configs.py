@@ -332,10 +332,10 @@ method_configs["nesf"] = TrainerConfig(
     method_name="nesf",
     experiment_name="/tmp",
     steps_per_eval_batch=100,
-    steps_per_eval_image=250,
-    steps_per_save=2000,
-    max_num_iterations=30000,
-    steps_per_eval_all_images=10000000,
+    steps_per_eval_image=500,
+    steps_per_save=10000,
+    max_num_iterations=50000,
+    steps_per_eval_all_images=1000000,
     mixed_precision=False,
     pipeline=NesfPipelineConfig(
         datamanager=NesfDataManagerConfig(
@@ -376,10 +376,10 @@ method_configs["nesf"] = TrainerConfig(
             # "scheduler": None,
         },
     },
-    viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7011),
+    viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7011, quit_on_train_completion=False),
     save_only_latest_checkpoint=False,
     vis="viewer",
-    logging=LoggingConfig(steps_per_log=1),
+    logging=LoggingConfig(steps_per_log=10),
 )
 
 # method_configs["nesf"] = TrainerConfig(

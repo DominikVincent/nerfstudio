@@ -121,6 +121,7 @@
     "request": "launch",
     "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/sweep_nesf.py",
     "console": "integratedTerminal",
+    "args": "dhollidt/mae-models-project/kfsdevg7",
     "env": {
       // "CUDA_LAUNCH_BLOCKING": "1"
     },
@@ -140,7 +141,7 @@
       "type": "python",
       "request": "launch",
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/eval.py",
-      "args": ["--load-config", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-15_194428/config.yml"],
+      "args": ["--load-config", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-27_102416/config.yml"],
       "console": "integratedTerminal",
       "justMyCode": false,
       "env": {
