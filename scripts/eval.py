@@ -12,6 +12,7 @@ from pathlib import Path
 import tyro
 from rich.console import Console
 
+import wandb
 from nerfstudio.configs.base_config import LocalWriterConfig, LoggingConfig
 from nerfstudio.utils import writer
 from nerfstudio.utils.eval_utils import eval_setup
@@ -29,11 +30,13 @@ class ComputePSNR:
     output_path: Path = Path("output.json")
     save_images: bool = False
     use_wandb: bool = False
+    name: str = ""
 
     def main(self) -> None:
         """Main function."""
         writer.setup_event_writer(self.use_wandb, is_tensorboard_enabled=False, log_dir="logs")
-
+        if self.name != "":
+            wandb.run.name = self.name
         writer.setup_local_writer(
             LoggingConfig(local_writer=LocalWriterConfig(enable=False)), max_iter=100000, banner_messages=["HERRO"]
         )
@@ -43,7 +46,9 @@ class ComputePSNR:
         print(config)
         assert self.output_path.suffix == ".json"
         if self.save_images:
-            metrics_dict = pipeline.get_average_eval_image_metrics(save_path=self.output_path.parent, wandb=self.use_wandb)
+            metrics_dict = pipeline.get_average_eval_image_metrics(
+                save_path=self.output_path.parent, wandb=self.use_wandb
+            )
         else:
             metrics_dict = pipeline.get_average_eval_image_metrics(wandb=self.use_wandb)
 
