@@ -11,7 +11,8 @@ def run_nesf(vis: str = "wandb"):
     OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/")
     DATA_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11")
 
-    trainConfig = method_configs["nesf"]
+    # trainConfig = method_configs["nesf"]
+    trainConfig = method_configs["nesf_density"]
     trainConfig.vis = vis
     trainConfig.data = DATA_PATH
     trainConfig.output_dir = OUTPUT_DIR

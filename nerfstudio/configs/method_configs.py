@@ -347,7 +347,82 @@ method_configs["nesf"] = TrainerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
         ),
-        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=256, rgb=True, pretrain=True),
+        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=256, mode="rgb", pretrain=True),
+    ),
+    optimizers={
+        "feature_network": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
+        },
+        "feature_transformer": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
+        },
+        "learned_low_density_params": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
+        },
+        "decoder": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
+        },
+        "head": {
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            # "scheduler": None,
+        },
+    },
+    viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7011, quit_on_train_completion=False),
+    save_only_latest_checkpoint=False,
+    vis="viewer",
+    logging=LoggingConfig(steps_per_log=10),
+)
+
+
+method_configs["nesf_density"] = TrainerConfig(
+    method_name="nesf",
+    experiment_name="/tmp",
+    steps_per_eval_batch=100,
+    steps_per_eval_image=250,
+    steps_per_save=10000,
+    max_num_iterations=50000,
+    steps_per_eval_all_images=1000000,
+    mixed_precision=False,
+    pipeline=NesfPipelineConfig(
+        datamanager=NesfDataManagerConfig(
+            dataparser=NesfDataParserConfig(),
+            train_num_rays_per_batch=64,
+            eval_num_rays_per_batch=64,
+            steps_per_model=1,
+            camera_optimizer=CameraOptimizerConfig(
+                mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+            ),
+        ),
+        model=NeuralSemanticFieldConfig(
+            eval_num_rays_per_chunk=256,
+            mode="density",
+            pretrain=True,
+            use_feature_rgb=True,
+            use_feature_dir=True,
+            use_feature_pos=True,
+            use_feature_density=False,
+            rgb_feature_dim=16,
+            feature_transformer_num_layers=4,
+            feature_transformer_num_heads=8,
+            feature_transformer_dim_feed_forward=64,
+            feature_transformer_dropout_rate=0.1,
+            feature_transformer_feature_dim=64,
+            decoder_feature_transformer_num_layers=2,
+            decoder_feature_transformer_num_heads=2,
+            decoder_feature_transformer_dim_feed_forward=32,
+            decoder_feature_transformer_dropout_rate=0.1,
+            decoder_feature_transformer_feature_dim=32,
+            density_prediction="direct",
+        ),
     ),
     optimizers={
         "feature_network": {

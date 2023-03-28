@@ -63,7 +63,7 @@ class TrainerConfig(ExperimentConfig):
     """Number of steps between saves."""
     steps_per_eval_batch: int = 500
     """Number of steps between randomly sampled batches of rays."""
-    steps_per_eval_image: int = 500
+    steps_per_eval_image: int = 250
     """Number of steps between single eval images."""
     steps_per_eval_all_images: int = 35000
     """Number of steps between eval all images."""
