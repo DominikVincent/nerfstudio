@@ -2,10 +2,12 @@
 
 import argparse
 import multiprocessing
+import os
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
+from typing import List, Union
 
 import yaml
 
@@ -16,22 +18,56 @@ import wandb
 # from scripts.eval import ComputePSNR
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/mae-models-project")
-parser.add_argument("--sweep_id", help="The wandb sweep id", type=str, default="kfsdevg7")
+parser.add_argument("--slurm", help="Use slurm", action="store_true", default=False)
+parser.add_argument(
+    "--fix_config", help="whether to use wandb config to fix the local model config", action="store_true", default=False
+)
 parser.add_argument(
     "--eval_config",
     help="The nesf eval config",
     type=str,
     default="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_test.json",
 )
+parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/mae-models-project")
 
-FIX_CONFIG = True
+subparsers = parser.add_subparsers(dest="command")
+
+sweep_parser = subparsers.add_parser("sweep")
+sweep_parser.add_argument("--sweep_id", help="The wandb sweep id", type=str, default="kfsdevg7")
+sweep_parser.add_argument(
+    "--eval_config",
+    help="The nesf eval config",
+    type=str,
+    default="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_test.json",
+)
+
+run_parser = subparsers.add_parser("run")
+run_parser.add_argument("runs", nargs="+", help="The names of the wandb runs to evaluate", type=str)
+
+
+FIX_CONFIG = False
+
+LOG_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/tmp/logs")
+
+
+@dataclass
+class EvalRun:
+    path: Path
+    name: str
+    eval_set: Union[None, Path] = None
 
 
 def get_sweep_runs(sweep_id, project_name):
     api = wandb.Api()
     sweep = api.sweep(project_name + "/" + sweep_id)
     return sweep.runs
+
+
+def get_runs(run_names: List["str"], project_name: str):
+    name_filter = {"$or": [{"display_name": run} for run in run_names]}
+    api = wandb.Api()
+    runs = api.runs(project_name, filters=name_filter)
+    return runs
 
 
 def sweep_run_to_path(run):
@@ -43,9 +79,30 @@ def sweep_run_to_path(run):
     )
 
 
-def ns_eval(config_path, output_path, name=""):
-    command = f"ns-eval --load-config {config_path} --output-path {output_path} --use-wandb --name {name}"
+def ns_eval(config_path, output_path, name, use_slurm=False):
+    command = f"ns-eval --load-config {config_path} --output-path {output_path} --use-wandb --name '{name}'"
 
+    if use_slurm:
+        # save command in bash script as file
+        BASH_SCRIPT = f"""\
+#!/bin/bash
+source /data/vision/polina/projects/wmh/dhollidt/conda/bin/activate
+conda activate nerfstudio3
+
+{command}
+"""
+        script_path = Path("/data/vision/polina/projects/wmh/dhollidt/tmp") / name
+        with open(script_path, "w") as f:
+            f.write(BASH_SCRIPT)
+            # give execute permission
+            os.chmod(script_path, 0o755)
+
+        date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
+        std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
+        std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
+        command = f"sbatch -p gpu --gres=gpu:1 --nodelist=mint,marjoram,zaatar -t 60:00 --mem-per-cpu 2000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+
+    print("Running command: ", command)
     # Execute the command and capture the output
     process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -65,24 +122,18 @@ def ns_eval(config_path, output_path, name=""):
     return return_code
 
 
-# def eval_run(path: Path, eval_set: Union[None, Path] = None, run, gpu_index: int = 0):
-#   wandb_config = wandb_run.config
-#   wandb_name = wandb_run.name + "_eval"
-def eval_run(path: Path, eval_set: Union[None, Path] = None, wandb_config=None, wandb_name=None, gpu_index: int = 0):
-    # print("GPU: ", gpu_index, "Path: ", path, "writers: ", writer.EVENT_WRITERS)
-    import os
+def dispatch_eval_run(run: EvalRun, use_slurm=False, wandb_config=None):
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_index)
-
-    out_path = path / "auto_eval_config.yml"
-    input_path = path / "config.yml"
+    out_path = run.path / "auto_eval_config.yml"
+    input_path = run.path / "config.yml"
 
     config = yaml.load(input_path.read_text(), Loader=yaml.Loader)
 
-    if eval_set is not None:
-        config.pipeline.datamanager.dataparser.data_config = eval_set
+    if run.eval_set is not None:
+        config.pipeline.datamanager.dataparser.data_config = run.eval_set
 
     if FIX_CONFIG:
+        assert wandb_config is not None
         for key, value in wandb_config["pipeline"]["model"].items():
             if key.startswith("_"):
                 continue
@@ -97,45 +148,34 @@ def eval_run(path: Path, eval_set: Union[None, Path] = None, wandb_config=None, 
     # save config as yaml
     out_path.write_text(yaml.dump(config), "utf8")
 
-    # eval = ComputePSNR(load_config=out_path,
-    #                    output_path=path / "auto_eval.json",
-    #                    save_images=False,
-    #                    use_wandb=True)
-    # eval.main()
-    # print(gpu_index, ": Reseting writers: ", writer.EVENT_WRITERS)
-    # writer.reset_writer()
-    # print(gpu_index, ": Reset writers", writer.EVENT_WRITERS)
-    ns_eval(out_path, path / "auto_eval.json", name=wandb_name)
-    print(" ######################### Done with: ", path, " ######################### ")
-    return path
+    ns_eval(out_path, run.path / "auto_eval.json", name=run.name, use_slurm=use_slurm)
+    print(" ######################### Done with: ", run, " ######################### ")
 
 
-def main(project_name: str, sweep_id: str, eval_config: Union[None, Path] = None):
+def sweep_eval(project_name: str, sweep_id: str, eval_config: Union[None, Path] = None, use_slurm: bool = True):
     runs = get_sweep_runs(sweep_id, project_name)
-    pool = multiprocessing.Pool(processes=2, maxtasksperchild=1)
-
-    results = []
     for i, run in enumerate(runs):
-        gpu_index = i % 3 + 1  # assign the next GPU index
         path = sweep_run_to_path(run)
-        print(path)
-        result = pool.apply_async(eval_run, args=(path, eval_config, run.config, run.name + "_test", gpu_index))
-        results.append(result)
-        # eval_run(path, eval_config, run, gpu_index)
+        eval_run = EvalRun(path, run.name + "_test", eval_config)
+        dispatch_eval_run(eval_run, wandb_config=run.config, use_slurm=use_slurm)
 
-    pool.close()
-    print("###### CLOSE POOL ######")
-    pool.join()
-    print("###### JOIN POOL ######")
 
-    # get the results from the async calls
-    final_results = [result.get() for result in results]
-    print(final_results)
+def runs_eval(runs: List[str], project_name: str, use_slurm: bool = True):
+    wandb_runs = get_runs(run_names=runs, project_name=project_name)
+    for i, wandb_run in enumerate(wandb_runs):
+        path = sweep_run_to_path(wandb_run)
+        eval_run = EvalRun(path, wandb_run.name + "_test")
+
+        dispatch_eval_run(eval_run, use_slurm=use_slurm)
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    proj_name = args.proj_name
-    sweep_id = args.sweep_id
-    eval_config = Path(args.eval_config) if args.eval_config is not None or args.eval_config != "" else None
-    main(proj_name, sweep_id, eval_config)
+    FIX_CONFIG = args.fix_config
+    if args.command == "sweep":
+        proj_name = args.proj_name
+        sweep_id = args.sweep_id
+        eval_config = Path(args.eval_config) if args.eval_config is not None or args.eval_config != "" else None
+        sweep_eval(proj_name, sweep_id, eval_config)
+    elif args.command == "run":
+        runs_eval(args.runs, args.proj_name, args.slurm)

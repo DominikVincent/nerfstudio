@@ -37,6 +37,7 @@ class ComputePSNR:
         writer.setup_event_writer(self.use_wandb, is_tensorboard_enabled=False, log_dir="logs")
         if self.name != "":
             wandb.run.name = self.name
+            wandb.run.tags = ["test", "eval"]
         writer.setup_local_writer(
             LoggingConfig(local_writer=LocalWriterConfig(enable=False)), max_iter=100000, banner_messages=["HERRO"]
         )

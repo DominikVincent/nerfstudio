@@ -146,6 +146,18 @@
       "justMyCode": false,
       "env": {
         "CUDA_VISIBLE_DEVICES": "1"
+     }
+    },
+  {
+    "name": "eval runs",
+    "type": "python",
+    "request": "launch",
+    "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/train_scripts/eval_sweep.py",
+    "args": ["--slurm","run","density direct no thresh", "density integration", "density+hist", "density", "rgb mask=0.5"],
+    "console": "integratedTerminal",
+    "justMyCode": false,
+    "env": {
+      "CUDA_VISIBLE_DEVICES": "1"
     }
   }
   ]
