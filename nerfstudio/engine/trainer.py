@@ -79,6 +79,9 @@ class TrainerConfig(ExperimentConfig):
     load_step: Optional[int] = None
     """Optionally specify model step to load from; if none, will find most recent model in load_dir."""
     load_config: Optional[Path] = None
+    """path to config to load. Ignores all other parameters in config."""
+    load_pretrained_model: bool = False
+    """If set it will"""
 
 
 class Trainer:
@@ -327,12 +330,22 @@ class Trainer:
             load_path = load_dir / f"step-{load_step:09d}.ckpt"
             assert load_path.exists(), f"Checkpoint {load_path} does not exist"
             loaded_state = torch.load(load_path, map_location="cpu")
-            self._start_step = loaded_state["step"] + 1
             # load the checkpoints for pipeline, optimizers, and gradient scalar
-            self.pipeline.load_pipeline(loaded_state["pipeline"])
-            self.optimizers.load_optimizers(loaded_state["optimizers"])
-            self.grad_scaler.load_state_dict(loaded_state["scalers"])
-            CONSOLE.print(f"done loading checkpoint from {load_path}")
+            if self.config.load_pretrained_model:
+                pipeline_state_dict = loaded_state["pipeline"]
+                # remove all keys which contain certain strings
+                strings_not_allowed = ["head", "fallback_model", "decoder", "mask_token", "learned_low_density_value"]
+                for key in list(pipeline_state_dict.keys()):
+                    if any(string in key for string in strings_not_allowed):
+                        del pipeline_state_dict[key]
+
+                self.pipeline.load_pipeline(loaded_state["pipeline"])
+            else:
+                self._start_step = loaded_state["step"] + 1
+                self.pipeline.load_pipeline(loaded_state["pipeline"])
+                self.optimizers.load_optimizers(loaded_state["optimizers"])
+                self.grad_scaler.load_state_dict(loaded_state["scalers"])
+                CONSOLE.print(f"done loading checkpoint from {load_path}")
         else:
             CONSOLE.print("No checkpoints to load, training from scratch")
 

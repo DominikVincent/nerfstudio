@@ -111,7 +111,7 @@
       "console": "integratedTerminal",
       "env": {
         // "CUDA_LAUNCH_BLOCKING": "1",
-        "CUDA_VISIBLE_DEVICES": "3"
+         // "CUDA_VISIBLE_DEVICES": "3"
       },
       "justMyCode": false
   },
@@ -145,9 +145,9 @@
       "console": "integratedTerminal",
       "justMyCode": false,
       "env": {
-        "CUDA_VISIBLE_DEVICES": "1"
+         // "CUDA_VISIBLE_DEVICES": "1"
      }
-    },
+  },
   {
     "name": "eval runs",
     "type": "python",
@@ -157,7 +157,19 @@
     "console": "integratedTerminal",
     "justMyCode": false,
     "env": {
-      "CUDA_VISIBLE_DEVICES": "1"
+       // "CUDA_VISIBLE_DEVICES": "1"
+      },
+  },
+  {
+    "name": "ns-train",
+    "type": "python",
+    "request": "launch",
+    "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/train.py",
+    "args": ["nesf", "--load_config", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-28_165201/auto_semantic_config.yml"],
+    "console": "integratedTerminal",
+    "justMyCode": false,
+    "env": {
+       // "CUDA_VISIBLE_DEVICES": "1"
     }
   }
   ]

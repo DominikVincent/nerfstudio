@@ -252,13 +252,21 @@ class NeuralSemanticFieldModel(Model):
         return
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
-        return {
+
+        param_groups = {
             "feature_network": list(self.feature_model.parameters()),
             "feature_transformer": list(self.feature_transformer.parameters()),
             "learned_low_density_params": [self.learned_low_density_value],
             "decoder": list(self.decoder.parameters()),
             "head": list(self.head.parameters()),
         }
+
+        # filter the empty ones
+        for key in list(param_groups.keys()):
+            if len(param_groups[key]) == 0:
+                del param_groups[key]
+
+        return param_groups
 
     @profiler.time_function
     def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None):
@@ -569,6 +577,9 @@ class NeuralSemanticFieldModel(Model):
         Args:
             model (Model): The fallback nerf model
         """
+        # set the model to not require a gradient
+        for param in model.parameters():
+            param.requires_grad = False
         self.fallback_model = model
 
     @profiler.time_function

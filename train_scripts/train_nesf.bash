@@ -7,8 +7,8 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
 	--vis wandb \
 	--pipeline.datamanager.steps-per-model 1 \
-	--pipeline.model.mode rgb \
-	--pipeline.model.pretrain True  \
+	--pipeline.model.mode semantics \
+	--pipeline.model.pretrain False  \
 	--pipeline.model.use-feature-rgb True \
 	--pipeline.model.use-feature-dir True \
 	--pipeline.model.use-feature-pos True \
