@@ -132,55 +132,12 @@ class NesfDataParserConfig(DataParserConfig):
     ...]}"""
 
 
-def _load_model(load_dir, load_step, data_dir: Path, config: Dict, local_rank: int = 0, world_size: int = 1) -> Model:
-    from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
-    from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
-    from nerfstudio.engine.optimizers import AdamOptimizerConfig
-    from nerfstudio.engine.trainer import TrainerConfig
-    from nerfstudio.models.nerfacto import NerfactoModelConfig
-    from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
-
-    pipeline = VanillaPipelineConfig(
-        datamanager=VanillaDataManagerConfig(
-            dataparser=NerfstudioDataParserConfig(data=data_dir),
-            train_num_rays_per_batch=4096,
-            eval_num_rays_per_batch=4096,
-            camera_optimizer=CameraOptimizerConfig(
-                mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-            ),
-        ),
-        model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
-    )
-    pipeline.datamanager.dataparser = cast(NerfstudioDataParserConfig, pipeline.datamanager.dataparser)
-    pipeline.datamanager.dataparser.train_split_percentage = config.get(
-        "train_split", pipeline.datamanager.dataparser.train_split_percentage
-    )
-
-    device = "cpu" if world_size == 0 else f"cuda:{local_rank}"
-    pipeline = pipeline.setup(device=device, test_mode="inference", world_size=world_size, local_rank=local_rank)
-
-    """Helper function to load pipeline and optimizer from prespecified checkpoint"""
-    if load_dir is not None:
-        if load_step is None:
-            print("Loading latest checkpoint from load_dir")
-            # NOTE: this is specific to the checkpoint name format
-            load_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(load_dir))[-1]
-        load_path = load_dir / f"step-{load_step:09d}.ckpt"
-        assert load_path.exists(), f"Checkpoint {load_path} does not exist"
-        loaded_state = torch.load(load_path, map_location="cpu")
-        # load the checkpoints for pipeline, optimizers, and gradient scalar
-        pipeline.load_pipeline(loaded_state["pipeline"])
-        print(f"done loading checkpoint from {load_path}")
-    else:
-        print("No checkpoints to load, training from scratch")
-    return pipeline.model
-
-
 @dataclass
 class Nesf(DataParser):
     """Nerfstudio DatasetParser"""
 
     config: NesfDataParserConfig
+    model_cache: Dict[str, Model] = field(default_factory=lambda: {})
 
     def _generate_dataparser_outputs(self, split="train") -> List[DataparserOutputs]:
         # pylint: disable=too-many-statements
@@ -199,15 +156,18 @@ class Nesf(DataParser):
             # TODO find a more global solution for casting instead of just one key
             nerfstudio.config.data = Path(nerfstudio.config.data)
 
-            dataparser_output = nerfstudio.get_dataparser_outputs(
-                split=conf.get("set_type", "train")
-            )
+            # dataparser_output = nerfstudio.get_dataparser_outputs(split=conf.get("set_type", "train"))
+            dataparser_output = nerfstudio.get_dataparser_outputs(split=split)
+            print(conf.get("set_type", "train"))
+            print(len(dataparser_output.image_filenames))
+            print([int(path.name[5:-4]) for path in dataparser_output.image_filenames])
+
             models.append({"load_dir": conf["load_dir"], "load_step": conf["load_step"], "data_parser": nerfstudio})
             # TODO maybe load model
 
             # parent path of file
             data_path = dataparser_output.image_filenames[0].parent.resolve()
-            model = _load_model(
+            model = self._load_model(
                 load_dir=Path(conf["load_dir"]),
                 load_step=conf["load_step"],
                 data_dir=data_path,
@@ -242,3 +202,58 @@ class Nesf(DataParser):
         #     },
         # )
         return data_parser_outputs
+
+    def _load_model(
+        self, load_dir, load_step, data_dir: Path, config: Dict, local_rank: int = 0, world_size: int = 1
+    ) -> Model:
+        from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
+        from nerfstudio.data.datamanagers.base_datamanager import (
+            VanillaDataManagerConfig,
+        )
+        from nerfstudio.engine.optimizers import AdamOptimizerConfig
+        from nerfstudio.engine.trainer import TrainerConfig
+        from nerfstudio.models.nerfacto import NerfactoModelConfig
+        from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
+
+        if str(load_dir) + str(load_step) in self.model_cache:
+            CONSOLE.print("Returning model from cache")
+            return self.model_cache[str(load_dir) + str(load_step)]
+
+        pipeline = VanillaPipelineConfig(
+            datamanager=VanillaDataManagerConfig(
+                dataparser=NerfstudioDataParserConfig(data=data_dir),
+                train_num_rays_per_batch=4096,
+                eval_num_rays_per_batch=4096,
+                camera_optimizer=CameraOptimizerConfig(
+                    mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
+                ),
+            ),
+            model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
+        )
+        pipeline.datamanager.dataparser = cast(NerfstudioDataParserConfig, pipeline.datamanager.dataparser)
+        pipeline.datamanager.dataparser.train_split_percentage = config.get(
+            "train_split", pipeline.datamanager.dataparser.train_split_percentage
+        )
+
+        # REMOVE THE LINE BELOW IF IT SHOULD LOAD ON GPU DIRECTLY
+        device = "cpu"
+        # device = "cpu" if world_size == 0 else f"cuda:{local_rank}"
+        pipeline = pipeline.setup(device=device, test_mode="inference", world_size=world_size, local_rank=local_rank)
+
+        """Helper function to load pipeline and optimizer from prespecified checkpoint"""
+        if load_dir is not None:
+            if load_step is None:
+                print("Loading latest checkpoint from load_dir")
+                # NOTE: this is specific to the checkpoint name format
+                load_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(load_dir))[-1]
+            load_path = load_dir / f"step-{load_step:09d}.ckpt"
+            assert load_path.exists(), f"Checkpoint {load_path} does not exist"
+            loaded_state = torch.load(load_path, map_location="cpu")
+            # load the checkpoints for pipeline, optimizers, and gradient scalar
+            pipeline.load_pipeline(loaded_state["pipeline"])
+            print(f"done loading checkpoint from {load_path}")
+        else:
+            print("No checkpoints to load, training from scratch")
+
+        self.model_cache[str(load_dir) + str(load_step)] = pipeline.model
+        return pipeline.model

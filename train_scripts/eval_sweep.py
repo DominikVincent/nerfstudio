@@ -100,7 +100,7 @@ conda activate nerfstudio3
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p gpu --gres=gpu:1 --nodelist=mint,marjoram,zaatar -t 60:00 --mem-per-cpu 2000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p QRTX5000 --gres=gpu:1 -t 60:00 --mem-per-cpu 2000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output
@@ -160,11 +160,11 @@ def sweep_eval(project_name: str, sweep_id: str, eval_config: Union[None, Path] 
         dispatch_eval_run(eval_run, wandb_config=run.config, use_slurm=use_slurm)
 
 
-def runs_eval(runs: List[str], project_name: str, use_slurm: bool = True):
+def runs_eval(runs: List[str], project_name: str, use_slurm: bool = True, eval_config: Union[None, Path] = None):
     wandb_runs = get_runs(run_names=runs, project_name=project_name)
     for i, wandb_run in enumerate(wandb_runs):
         path = sweep_run_to_path(wandb_run)
-        eval_run = EvalRun(path, wandb_run.name + "_test")
+        eval_run = EvalRun(path, wandb_run.name + "_test", eval_config)
 
         dispatch_eval_run(eval_run, use_slurm=use_slurm)
 
@@ -178,4 +178,5 @@ if __name__ == "__main__":
         eval_config = Path(args.eval_config) if args.eval_config is not None or args.eval_config != "" else None
         sweep_eval(proj_name, sweep_id, eval_config)
     elif args.command == "run":
-        runs_eval(args.runs, args.proj_name, args.slurm)
+        eval_config = Path(args.eval_config) if args.eval_config is not None or args.eval_config != "" else None
+        runs_eval(args.runs, args.proj_name, args.slurm, eval_config=eval_config)

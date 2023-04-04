@@ -333,21 +333,25 @@ method_configs["nesf"] = TrainerConfig(
     experiment_name="/tmp",
     steps_per_eval_batch=100,
     steps_per_eval_image=500,
-    steps_per_save=10000,
-    max_num_iterations=50000,
+    steps_per_save=2000,
+    max_num_iterations=500000,
     steps_per_eval_all_images=1000000,
     mixed_precision=False,
     pipeline=NesfPipelineConfig(
         datamanager=NesfDataManagerConfig(
             dataparser=NesfDataParserConfig(),
-            train_num_rays_per_batch=64,
-            eval_num_rays_per_batch=64,
-            steps_per_model=1,
+            train_num_rays_per_batch=2048,
+            eval_num_rays_per_batch=2048,
+            steps_per_model=11,
+            train_num_images_to_sample_from=8,
+            train_num_times_to_repeat_images=4,
+            eval_num_images_to_sample_from=8,
+            eval_num_times_to_repeat_images=4,
             camera_optimizer=CameraOptimizerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
         ),
-        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=256, mode="rgb", pretrain=True),
+        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=2048, mode="semantics", pretrain=False),
     ),
     optimizers={
         "feature_network": {

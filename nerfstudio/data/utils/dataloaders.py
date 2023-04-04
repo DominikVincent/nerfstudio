@@ -116,7 +116,8 @@ class CacheDataloader(DataLoader):
         """Returns a collated batch."""
         batch_list = self._get_batch_list()
         collated_batch = self.collate_fn(batch_list)
-        collated_batch = get_dict_to_torch(collated_batch, device=self.device, exclude=["image"])
+        print("dL self device:", self.device)
+        collated_batch = get_dict_to_torch(collated_batch, device=self.device, exclude=["image", "semantics"])
         return collated_batch
 
     def __iter__(self):
@@ -134,7 +135,9 @@ class CacheDataloader(DataLoader):
                 self.first_time = False
             else:
                 collated_batch = self.cached_collated_batch
+                collated_batch = get_dict_to_torch(collated_batch, device=self.device, exclude=["image", "semantics"])
                 self.num_repeated += 1
+
             yield collated_batch
 
 

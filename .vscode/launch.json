@@ -111,7 +111,7 @@
       "console": "integratedTerminal",
       "env": {
         // "CUDA_LAUNCH_BLOCKING": "1",
-         // "CUDA_VISIBLE_DEVICES": "3"
+         "CUDA_VISIBLE_DEVICES": "2"
       },
       "justMyCode": false
   },
@@ -137,11 +137,11 @@
       "justMyCode": false
   },
   {
-      "name": "eval",
+      "name": "ns-eval",
       "type": "python",
       "request": "launch",
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/eval.py",
-      "args": ["--load-config", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-27_102416/config.yml"],
+      "args": ["--load-config", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-29_164852/config.yml"],
       "console": "integratedTerminal",
       "justMyCode": false,
       "env": {

@@ -8,7 +8,6 @@ import numpy as np
 import plotly.express as px
 import torch
 import torch.nn.functional as F
-import torchvision
 from rich.console import Console
 from torch import Tensor, nn
 from torch.nn import Parameter
@@ -30,12 +29,6 @@ from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.models.nerfacto import NerfactoModel
 from nerfstudio.utils import profiler
 from nerfstudio.utils.writer import put_config
-
-try:
-    import tinycudann as tcnn
-except ImportError:
-    # tinycudann module doesn't exist
-    pass
 
 lt.monkey_patch()
 
@@ -103,6 +96,14 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """How to train the density prediction. With the direct nerf density output or throught the integration process"""
     density_cutoff: float = 1e8
     """Large density values might be an issue for training. Hence they can get cut off with this."""
+
+    batching_mode: Literal["sequential", "spatially", "off"] = "sequential"
+    """Usually all samples are fed into the transformer at the same time. This could be too much for the model to understand and also too much for VRAM.
+    Hence we batch the samples:
+     - sequential: we batch the samples by wrapping them sequentially into batches.
+     - spatially: TODO idea is to analyse spatiallay close lying samples and batch them together.
+     - off: no batching is done."""
+    batch_size: int = 512
 
 
 def get_wandb_histogram(tensor):
@@ -276,7 +277,7 @@ class NeuralSemanticFieldModel(Model):
         # TODO do semantic rendering
         model: Model = self.get_model(batch)
 
-        outs, weights, density_mask, misc = self.feature_model(ray_bundle, model)
+        outs, weights, density_mask, misc = self.feature_model(ray_bundle, model)  # 1, low_dense, 49
         # CONSOLE.print("dense values: ", (density_mask).sum().item(), "/", density_mask.numel())
 
         # assert outs is not nan or not inf
@@ -286,10 +287,38 @@ class NeuralSemanticFieldModel(Model):
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
+        if self.config.batching_mode != "off":
+            if self.config.batching_mode == "sequential":
+                W = outs.shape[1]
+                padding = (
+                    self.config.batch_size - (W % self.config.batch_size) if W % self.config.batch_size != 0 else 0
+                )
+                outs = torch.nn.functional.pad(outs, (0, 0, 0, padding))
 
+                masking_top = torch.full((W,), False, dtype=torch.bool)
+                masking_bottom = torch.full((padding,), True, dtype=torch.bool)
+                masking = torch.cat((masking_top, masking_bottom)).to(self.device)
+
+                ids_shuffle = torch.arange(outs.shape[1])
+                # ids_restore = torch.argsort(ids_shuffle)
+                ids_restore = ids_shuffle
+            else:
+                raise ValueError(f"Unknown batching mode {self.config.batching_mode}")
+
+            # sorting by ids rearangement. Not necessary for sequential batching
+            outs = outs[:, ids_shuffle, :]
+            mask = masking[ids_shuffle]
+
+            # batching
+            outs = outs.reshape(-1, self.config.batch_size, outs.shape[-1])
+            mask = mask.reshape(-1, self.config.batch_size)
+        else:
+            ids_restore = None
+            mask = None
+            W = None
         outputs = {}
         if self.config.pretrain:
-            x, mask, ids_restore = self.feature_transformer(outs)
+            x, mask, ids_restore = self.feature_transformer(outs, src_key_padding_mask=mask)
             x = self.decoder(x, ids_restore)
             field_outputs = self.head(x)
 
@@ -311,9 +340,18 @@ class NeuralSemanticFieldModel(Model):
 
             # field_outputs = outs
         else:
-            field_encodings = self.feature_transformer(outs)
+            field_encodings = self.feature_transformer(outs, src_key_padding_mask=mask)
             field_encodings = self.decoder(field_encodings)
             field_outputs = self.head(field_encodings)
+
+        # unbatch the data
+        if self.config.batching_mode != "off":
+            field_outputs = field_outputs.reshape(1, -1, field_outputs.shape[-1])
+            # reshuffle results
+            field_outputs = field_outputs[:, ids_restore, :]
+            
+            # removed padding token
+            field_outputs = field_outputs[:, :W, :]
 
         if self.config.mode == "rgb":
             # debug rgb
@@ -324,8 +362,8 @@ class NeuralSemanticFieldModel(Model):
             rgb = self.renderer_rgb(rgb, weights=weights)
             outputs["rgb"] = rgb
         elif self.config.mode == "semantics":
-            semantics = torch.empty((*density_mask.shape, len(self.semantics.classes)), device=self.device)
-            semantics[density_mask] = field_outputs
+            semantics = torch.empty((*density_mask.shape, len(self.semantics.classes)), device=self.device)  # 64, 48, 6
+            semantics[density_mask] = field_outputs  # 1, num_dense_samples, 6
             semantics[~density_mask] = self.learned_low_density_value
 
             # debug semantics
@@ -336,7 +374,7 @@ class NeuralSemanticFieldModel(Model):
             high_density_semantic_labels = torch.argmax(torch.nn.functional.softmax(high_density, dim=-1), dim=-1)
 
             semantics = self.renderer_semantics(semantics, weights=weights)
-            outputs["semantics"] = semantics
+            outputs["semantics"] = semantics  # 64, 6
 
             # semantics colormaps
             semantic_labels = torch.argmax(torch.nn.functional.softmax(semantics, dim=-1), dim=-1)
@@ -408,11 +446,10 @@ class NeuralSemanticFieldModel(Model):
                 metrics_dict["mae_" + str(batch["model_idx"])] = metrics_dict["mae"]
 
         elif self.config.mode == "semantics":
+            semantics = batch["semantics"][..., 0].long().to(self.device)
             with torch.no_grad():
                 # mIoU
-                metrics_dict["miou_" + str(batch["model_idx"])] = self.miou(
-                    outputs["semantics"], batch["semantics"][..., 0].long()
-                )
+                metrics_dict["miou_" + str(batch["model_idx"])] = self.miou(outputs["semantics"], semantics)
         elif self.config.mode == "density":
             image = batch["image"].to(self.device)
 
@@ -438,12 +475,13 @@ class NeuralSemanticFieldModel(Model):
         loss_dict = {}
         if self.config.mode == "rgb":
             image = batch["image"].to(self.device)
+
             model_output = outputs["rgb"]
 
             loss_dict["rgb_loss_" + str(batch["model_idx"])] = self.rgb_loss(image, model_output)
         elif self.config.mode == "semantics":
             pred = outputs["semantics"]
-            gt = batch["semantics"][..., 0].long()
+            gt = batch["semantics"][..., 0].long().to(self.device)
             loss_dict["semantics_loss_" + str(batch["model_idx"])] = self.cross_entropy_loss(pred, gt)
         elif self.config.mode == "density":
             if self.config.density_prediction == "direct":
@@ -563,7 +601,7 @@ class NeuralSemanticFieldModel(Model):
             images_dict["semantics_colormap"] = outputs["semantics_colormap"]
             images_dict["rgb_image"] = batch["image"]
 
-            outs = outputs["semantics"].reshape(-1, outputs["semantics"].shape[-1])
+            outs = outputs["semantics"].reshape(-1, outputs["semantics"].shape[-1]).to(self.device)
             gt = batch["semantics"][..., 0].long().reshape(-1)
             miou = self.miou(outs, gt)
             metrics_dict = {"miou": float(miou.item())}
@@ -656,12 +694,12 @@ class FeatureGeneratorTorch(nn.Module):
             raise NotImplementedError("Only NerfactoModel is supported for now")
 
         misc = {
-            "rgb": field_outputs[FieldHeadNames.RGB],
-            "density": field_outputs[FieldHeadNames.DENSITY],
-            "ray_samples": ray_samples,
+            "rgb": field_outputs[FieldHeadNames.RGB],  # 64, 48, 4
+            "density": field_outputs[FieldHeadNames.DENSITY],  # 64, 48, 1
+            "ray_samples": ray_samples,  # 64, 48, ...
         }
-        density = field_outputs[FieldHeadNames.DENSITY]
-        density_mask = (density > self.density_threshold).squeeze(-1)
+        density = field_outputs[FieldHeadNames.DENSITY]  # 64, 48, 1 (rays, samples, 1)
+        density_mask = (density > self.density_threshold).squeeze(-1)  # 64, 48
 
         encodings = []
 
@@ -675,8 +713,14 @@ class FeatureGeneratorTorch(nn.Module):
             # normalize density between 0 and 1
             density = (density - density.min()) / (density.max() - density.min())
             # assert no nan and no inf values
-            assert not torch.isnan(density).any()
-            assert not torch.isinf(density).any()
+            # assert not torch.isnan(density).any()
+            # assert not torch.isinf(density).any()
+            if torch.isnan(density).any():
+                CONSOLE.print("density has nan values: ", torch.isnan(density).sum())
+                density[torch.isnan(density)] = 0.0
+            if torch.isinf(density).any():
+                CONSOLE.print("density has inf values: ", torch.isinf(density).sum())
+                density[torch.isinf(density)] = 1000000.0
 
             encodings.append(density)
 
@@ -702,6 +746,9 @@ class FeatureGeneratorTorch(nn.Module):
             fig = px.scatter_3d(data, x="x", y="y", z="z")
             fig.show()
         out = torch.cat(encodings, dim=1).unsqueeze(0)
+
+        # out: 1, num_dense, out_dim
+        # weights: num_rays, num_samples, 1
         return out, weights, density_mask, misc
 
     def get_out_dim(self) -> int:
@@ -777,7 +824,7 @@ class TransformerEncoderModel(torch.nn.Module):
 
         return x_masked, mask, ids_restore
 
-    def forward(self, x, ids_restore=None):
+    def forward(self, x, ids_restore=None, src_key_padding_mask=None):
         """
         If pretrain == False:
             the input x is a sequence of shape [N, L, D] will simply be transformed by the transformer encoder.
@@ -807,10 +854,12 @@ class TransformerEncoderModel(torch.nn.Module):
             x = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]))  # unshuffle
 
         # CONSOLE.print(f"Input shape: {x.shape}")
-        x = self.feature_dim_layer(x)
+        x = self.feature_dim_layer(x)  #
 
         # Apply the transformer encoder. Last step is layer normalization
-        x = self.transformer_encoder(x)
+        x = self.transformer_encoder(
+            x, src_key_padding_mask=src_key_padding_mask
+        )  # {1, num_dense_samples, feature_dim}
 
         if self.activation is not None:
             x = self.activation(x)

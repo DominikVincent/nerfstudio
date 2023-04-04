@@ -123,6 +123,7 @@ class NesfPipeline(Pipeline):
         Args:
             step: current iteration step to update sampler if using DDP (distributed)
         """
+        self.datamanager.models_to_cpu(step)
         ray_bundle, batch = self.datamanager.next_train(step)
         transformer_model_outputs = self.model(ray_bundle, batch)
 
@@ -149,6 +150,7 @@ class NesfPipeline(Pipeline):
         Args:
             step: current iteration step
         """
+        self.datamanager.models_to_cpu(step)
         self.eval()
         ray_bundle, batch = self.datamanager.next_eval(step)
         transformer_model_outputs = self.model(ray_bundle, batch)

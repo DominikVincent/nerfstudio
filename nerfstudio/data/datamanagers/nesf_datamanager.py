@@ -51,16 +51,16 @@ class NesfDataManagerConfig(InstantiateConfig):
     """Specifies the dataparser used to unpack the data."""
     train_num_rays_per_batch: int = 1024
     """Number of rays per batch to use per training iteration."""
-    train_num_images_to_sample_from: int = -1
+    train_num_images_to_sample_from: int = 4
     """Number of images to sample during training iteration."""
-    train_num_times_to_repeat_images: int = -1
+    train_num_times_to_repeat_images: int = 4
     """When not training on all images, number of iterations before picking new
     images. If -1, never pick new images."""
     eval_num_rays_per_batch: int = 1024
     """Number of rays per batch to use per eval iteration."""
-    eval_num_images_to_sample_from: int = -1
+    eval_num_images_to_sample_from: int = 4
     """Number of images to sample during eval iteration."""
-    eval_num_times_to_repeat_images: int = -1
+    eval_num_times_to_repeat_images: int = 4
     """When not evaluating on all images, number of iterations before picking
     new images. If -1, never pick new images."""
     eval_image_indices: Optional[Tuple[int, ...]] = (0,)
@@ -254,11 +254,29 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             for eval_dataset in self.eval_datasets
         ]
 
+    def debug_stats(self):
+        non_gpu = []
+        for i, dataset in enumerate(self.train_datasets):
+            dataset = cast(NesfItemDataset, dataset)
+            if dataset.model.device.type != "cpu":
+                non_gpu.append(i)
+        print("Non gpu: ", non_gpu)
+
+    def models_to_cpu(self, step):
+        """Moves all models who shouldnt be active to cpu."""
+        model_idx = self.step_to_dataset(step)
+        for i, dataset in enumerate(self.train_datasets):
+            if i == model_idx:
+                continue
+            dataset = cast(NesfItemDataset, dataset)
+            dataset.model.to("cpu")
+
     @profiler.time_function
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
         model_idx = self.step_to_dataset(step)
+        CONSOLE.print(f"Train model scene {model_idx}")
         image_batch = next(self.iter_train_image_dataloaders[model_idx])
         assert self.train_pixel_samplers[model_idx] is not None
         batch = self.train_pixel_samplers[model_idx].sample(image_batch)
@@ -266,12 +284,16 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         batch["model_idx"] = model_idx
         batch["model"] = image_batch["model"][0]
         ray_bundle = self.train_ray_generators[model_idx](ray_indices)
+        assert str(batch["image"].device) == "cpu"
+        assert str(batch["semantics"].device) == "cpu"
+        assert str(batch["indices"].device) == "cpu"
         return ray_bundle, batch
 
     def next_eval(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the eval dataloader."""
         self.eval_count += 1
         model_idx = self.eval_model % self.eval_datasets.set_count()
+        CONSOLE.print(f"Eval model scene {model_idx}")
         self.eval_model += 1
         image_batch = next(self.iter_eval_image_dataloaders[model_idx])
         assert self.eval_pixel_samplers[model_idx] is not None
@@ -312,6 +334,10 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     def step_to_dataset(self, step: int) -> int:
         """Returns the dataset index for the given step."""
         return (step // self.config.steps_per_model) % self.train_datasets.set_count()
+
+    def steps_to_next_dataset(self, step: int) -> int:
+        """Returns the number of steps until the next dataset is used."""
+        return self.config.steps_per_model - (step % self.config.steps_per_model)
 
 
 def get_dir_of_path(path: Path) -> str:

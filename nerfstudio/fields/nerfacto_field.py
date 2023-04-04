@@ -334,8 +334,8 @@ class TorchNerfactoField(Field):
         self,
         aabb,
         num_images: int,
-        position_encoding: Encoding = HashEncoding(),
-        direction_encoding: Encoding = SHEncoding(),
+        position_encoding: Encoding = None,
+        direction_encoding: Encoding = None,
         base_mlp_num_layers: int = 3,
         base_mlp_layer_width: int = 64,
         head_mlp_num_layers: int = 2,
@@ -346,6 +346,11 @@ class TorchNerfactoField(Field):
         spatial_distortion: SpatialDistortion = SceneContraction(),
     ) -> None:
         super().__init__()
+        if position_encoding is None:
+            position_encoding = HashEncoding()
+        if direction_encoding is None:
+            direction_encoding = SHEncoding()
+
         self.aabb = Parameter(aabb, requires_grad=False)
         self.spatial_distortion = spatial_distortion
         self.num_images = num_images
