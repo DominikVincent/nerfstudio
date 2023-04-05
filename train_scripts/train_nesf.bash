@@ -3,8 +3,8 @@
 source /data/vision/polina/projects/wmh/dhollidt/conda/bin/activate
 conda activate nerfstudio3
 
-DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_100.json"
-# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json"
+# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_100.json"
+DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json"
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
@@ -40,7 +40,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.decoder-feature-transformer-dim-feed-forward 32 \
 	--pipeline.model.decoder-feature-transformer-dropout-rate 0.1 \
 	--pipeline.model.decoder-feature-transformer-feature-dim 32 \
-	--pipeline.model.batching-mode "off" \
-	--pipeline.model.batch-size 512 \
+	--pipeline.model.batching-mode "sliced" \
+	--pipeline.model.batch_size 1024 \
 	nesf-data \
 	--data-config $DATA_CONFIG 
