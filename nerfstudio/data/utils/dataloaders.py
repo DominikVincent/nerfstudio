@@ -20,8 +20,10 @@ Code for sampling images from a dataset of images.
 import concurrent.futures
 import multiprocessing
 import random
+import time
 from abc import abstractmethod
 from typing import Dict, Optional, Tuple, Union
+
 
 import torch
 from rich.progress import Console, track
@@ -117,7 +119,11 @@ class CacheDataloader(DataLoader):
         batch_list = self._get_batch_list()
         collated_batch = self.collate_fn(batch_list)
         print("dL self device:", self.device)
+
+        # time the function
+        start_time = time.time()
         collated_batch = get_dict_to_torch(collated_batch, device=self.device, exclude=["image", "semantics"])
+        print("Dict to torch device:", time.time() - start_time)
         return collated_batch
 
     def __iter__(self):
@@ -135,7 +141,10 @@ class CacheDataloader(DataLoader):
                 self.first_time = False
             else:
                 collated_batch = self.cached_collated_batch
+                start_time = time.time()
                 collated_batch = get_dict_to_torch(collated_batch, device=self.device, exclude=["image", "semantics"])
+                print("Dict to torch device:", time.time() - start_time)
+
                 self.num_repeated += 1
 
             yield collated_batch

@@ -152,13 +152,18 @@ class Nesf(DataParser):
         models = []
         data_parser_outputs = []
         for conf in data_config["config"]:
+            print("split: ", split)
+            print("conf:", conf["data_parser_config"])
+            print(conf.get("set_type", "train"))
+
             nerfstudio = NerfstudioDataParserConfig(**conf["data_parser_config"]).setup()
             # TODO find a more global solution for casting instead of just one key
             nerfstudio.config.data = Path(nerfstudio.config.data)
 
             # dataparser_output = nerfstudio.get_dataparser_outputs(split=conf.get("set_type", "train"))
+            if "set_type" in conf:
+                split = conf["set_type"]
             dataparser_output = nerfstudio.get_dataparser_outputs(split=split)
-            print(conf.get("set_type", "train"))
             print(len(dataparser_output.image_filenames))
             print([int(path.name[5:-4]) for path in dataparser_output.image_filenames])
 

@@ -340,8 +340,8 @@ method_configs["nesf"] = TrainerConfig(
     pipeline=NesfPipelineConfig(
         datamanager=NesfDataManagerConfig(
             dataparser=NesfDataParserConfig(),
-            train_num_rays_per_batch=2048,
-            eval_num_rays_per_batch=2048,
+            train_num_rays_per_batch=4096,
+            eval_num_rays_per_batch=4096,
             steps_per_model=11,
             train_num_images_to_sample_from=8,
             train_num_times_to_repeat_images=4,
@@ -355,28 +355,28 @@ method_configs["nesf"] = TrainerConfig(
     ),
     optimizers={
         "feature_network": {
-            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
             # "scheduler": None,
         },
         "feature_transformer": {
-            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
             # "scheduler": None,
         },
         "learned_low_density_params": {
-            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
             # "scheduler": None,
         },
         "decoder": {
-            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
             # "scheduler": None,
         },
         "head": {
-            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
             # "scheduler": None,
         },
     },

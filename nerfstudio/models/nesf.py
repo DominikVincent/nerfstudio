@@ -1,11 +1,13 @@
 import random
 from collections import defaultdict
 from dataclasses import dataclass, field
+from math import ceil, sqrt
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
 
 import lovely_tensors as lt
 import numpy as np
 import plotly.express as px
+import plotly.graph_objs as go
 import torch
 import torch.nn.functional as F
 from rich.console import Console
@@ -52,6 +54,8 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """whether to use rgb as feature or not."""
     rgb_feature_dim: int = 16
     """the dimension of the rgb feature."""
+    density_feature_dim: int = 8
+    """the dimension of the density feature."""
     use_feature_pos: bool = True
     """whether to use pos as feature or not."""
     use_feature_dir: bool = True
@@ -60,6 +64,8 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """whether to use the [0-1] normalized density as a feature."""
     density_threshold: float = 0.7
     """The threshold value for which to filter out samples."""
+    rot_augmentation: bool = False
+    """Whether to use random rotations around z-axis for data augmentation."""
 
     feature_transformer_num_layers: int = 4
     """The number of encoding layers in the feature transformer."""
@@ -97,13 +103,16 @@ class NeuralSemanticFieldConfig(ModelConfig):
     density_cutoff: float = 1e8
     """Large density values might be an issue for training. Hence they can get cut off with this."""
 
-    batching_mode: Literal["sequential", "spatially", "off"] = "sequential"
+    batching_mode: Literal["sequential", "sliced", "off"] = "sliced"
     """Usually all samples are fed into the transformer at the same time. This could be too much for the model to understand and also too much for VRAM.
     Hence we batch the samples:
      - sequential: we batch the samples by wrapping them sequentially into batches.
-     - spatially: TODO idea is to analyse spatiallay close lying samples and batch them together.
+     - sliced: Sort points by x coordinate and then slice them into batches.
      - off: no batching is done."""
-    batch_size: int = 512
+    batch_size: int = 1024
+
+    samples_per_ray: int = 10
+    """When sampling the underlying nerfs. How many samples should be taken per ray."""
 
 
 def get_wandb_histogram(tensor):
@@ -155,11 +164,14 @@ class NeuralSemanticFieldModel(Model):
         self.feature_model = FeatureGeneratorTorch(
             aabb=self.scene_box.aabb,
             out_rgb_dim=self.config.rgb_feature_dim,
+            out_density_dim=self.config.density_feature_dim,
             rgb=self.config.use_feature_rgb,
             pos_encoding=self.config.use_feature_pos,
             dir_encoding=self.config.use_feature_dir,
             density=self.config.use_feature_density,
             density_threshold=self.config.density_threshold,
+            rot_augmentation=self.config.rot_augmentation,
+            samples_per_ray=self.config.samples_per_ray,
         )
 
         # Feature Transformer
@@ -288,20 +300,96 @@ class NeuralSemanticFieldModel(Model):
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
         if self.config.batching_mode != "off":
+            W = outs.shape[1]
+
             if self.config.batching_mode == "sequential":
-                W = outs.shape[1]
                 padding = (
                     self.config.batch_size - (W % self.config.batch_size) if W % self.config.batch_size != 0 else 0
                 )
                 outs = torch.nn.functional.pad(outs, (0, 0, 0, padding))
-
+                masking_top = torch.full((W,), False, dtype=torch.bool)
+                masking_bottom = torch.full((padding,), True, dtype=torch.bool)
+                masking = torch.cat((masking_top, masking_bottom)).to(self.device)
+                ids_shuffle = torch.arange(outs.shape[1])
+                ids_restore = ids_shuffle
+            elif self.config.batching_mode == "sliced":
+                cell_content = self.config.batch_size
+                columns_per_row = int(sqrt(outs.shape[1] / cell_content))
+                row_size = columns_per_row * cell_content
+                row_count = ceil(outs.shape[1] / row_size)
+                print(
+                    "Row count",
+                    row_count,
+                    "columns per row",
+                    columns_per_row,
+                    "Grid size",
+                    row_count * columns_per_row,
+                    "Takes points: ",
+                    row_count * columns_per_row * cell_content,
+                    "At point count: ",
+                    W,
+                )
+                padding = (
+                    (columns_per_row * self.config.batch_size) - (W % (columns_per_row * self.config.batch_size))
+                    if W % (columns_per_row * self.config.batch_size) != 0
+                    else 0
+                )
+                CONSOLE.print("padding with: ", padding)
+                outs = torch.nn.functional.pad(outs, (0, 0, 0, padding))
                 masking_top = torch.full((W,), False, dtype=torch.bool)
                 masking_bottom = torch.full((padding,), True, dtype=torch.bool)
                 masking = torch.cat((masking_top, masking_bottom)).to(self.device)
 
-                ids_shuffle = torch.arange(outs.shape[1])
-                # ids_restore = torch.argsort(ids_shuffle)
-                ids_restore = ids_shuffle
+                points = misc["ray_samples"].frustums.get_positions()[density_mask].view(-1, 3)
+                rand_points = torch.randn((padding, 3), device=points.device)
+                points_padded = torch.cat((points, rand_points))
+                ids_shuffle = torch.argsort(points_padded[:, 0])
+
+                for i in range(row_count):
+                    # for each row seperate into smaller cells by y axis
+                    row_idx = ids_shuffle[i * row_size : (i + 1) * row_size]
+                    points_row_y = points_padded[row_idx, 1]
+                    ids_shuffle[i * row_size : (i + 1) * row_size] = row_idx[torch.argsort(points_row_y)]
+
+                ids_restore = torch.argsort(ids_shuffle)
+                if DEBUG_PLOT_SAMPLES:
+                    points_pad = torch.nn.functional.pad(points, (0, 0, 0, padding))
+                    colors_pad = torch.nn.functional.pad(misc["rgb"][density_mask], (0, 0, 0, padding))
+                    for i in range(0, W // self.config.batch_size, 10):
+                        break
+                        points = (
+                            ray_samples.frustums.get_positions()[density_mask].detach().cpu().numpy()[:num_points, :]
+                        )
+                        colors = field_outputs[FieldHeadNames.RGB][density_mask].detach().cpu().numpy()
+
+                        points = (
+                            points_pad[ids_shuffle[self.config.batch_size * i : self.config.batch_size * (i + 1)], :]
+                            .detach()
+                            .cpu()
+                            .numpy()
+                        )
+                        colors = (
+                            colors_pad[ids_shuffle[self.config.batch_size * i : self.config.batch_size * (i + 1)], :]
+                            .detach()
+                            .cpu()
+                            .numpy()
+                        )
+
+                        scatter = go.Scatter3d(
+                            x=points[:, 0],
+                            y=points[:, 1],
+                            z=points[:, 2],
+                            mode="markers",
+                            marker=dict(color=colors, size=1, opacity=0.8),
+                        )
+
+                        # create a layout with axes labels
+                        layout = go.Layout(
+                            title=f"RGB points: {points.shape}",
+                            scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+                        )
+                        fig = go.Figure(data=[scatter], layout=layout)
+                        fig.show()
             else:
                 raise ValueError(f"Unknown batching mode {self.config.batching_mode}")
 
@@ -312,10 +400,35 @@ class NeuralSemanticFieldModel(Model):
             # batching
             outs = outs.reshape(-1, self.config.batch_size, outs.shape[-1])
             mask = mask.reshape(-1, self.config.batch_size)
+
+            if DEBUG_PLOT_SAMPLES:
+                points_pad_reordered = points_pad[ids_shuffle, :].to("cpu")
+                points_pad_reordered = points_pad_reordered.reshape(-1, self.config.batch_size, 3)
+                points = torch.empty((0, 3))
+                colors = torch.empty((0, 3))
+                for i in range(points_pad_reordered.shape[0]):
+                    points = torch.cat((points, points_pad_reordered[i, :, :]))
+                    colors = torch.cat((colors, torch.randn((1, 3)).repeat(self.config.batch_size, 1) * 255))
+                scatter = go.Scatter3d(
+                    x=points[:, 0],
+                    y=points[:, 1],
+                    z=points[:, 2],
+                    mode="markers",
+                    marker=dict(color=colors, size=1, opacity=0.8),
+                )
+
+                # create a layout with axes labels
+                layout = go.Layout(
+                    title=f"RGB points: {points.shape}",
+                    scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+                )
+                fig = go.Figure(data=[scatter], layout=layout)
+                fig.show()
         else:
             ids_restore = None
             mask = None
             W = None
+
         outputs = {}
         if self.config.pretrain:
             x, mask, ids_restore = self.feature_transformer(outs, src_key_padding_mask=mask)
@@ -349,7 +462,7 @@ class NeuralSemanticFieldModel(Model):
             field_outputs = field_outputs.reshape(1, -1, field_outputs.shape[-1])
             # reshuffle results
             field_outputs = field_outputs[:, ids_restore, :]
-            
+
             # removed padding token
             field_outputs = field_outputs[:, :W, :]
 
@@ -652,28 +765,43 @@ class FeatureGeneratorTorch(nn.Module):
         aabb,
         density_threshold: float = 0.5,
         out_rgb_dim: int = 8,
+        out_density_dim: int = 8,
         rgb: bool = True,
         pos_encoding: bool = True,
         dir_encoding: bool = True,
         density: bool = True,
+        rot_augmentation: bool = False,
+        samples_per_ray: int = 10,
     ):
         super().__init__()
         self.aabb = Parameter(aabb, requires_grad=False)
         self.density_threshold = density_threshold
         self.rgb = rgb
+
         self.pos_encoding = pos_encoding
         self.dir_encoding = dir_encoding
         self.density = density
 
         self.out_rgb_dim: int = out_rgb_dim
-        self.linear = nn.Sequential(
+        self.out_density_dim: int = out_density_dim
+
+        self.rot_augmentation: bool = rot_augmentation
+        self.samples_per_ray = samples_per_ray
+
+        self.rgb_linear = nn.Sequential(
             nn.Linear(3, 128),
             nn.ReLU(),
             nn.Linear(128, 128),
             nn.ReLU(),
             nn.Linear(128, self.out_rgb_dim),
         )
-
+        self.density_linear = nn.Sequential(
+            nn.Linear(1, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, self.out_density_dim),
+        )
         if self.pos_encoding:
             self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
         if self.dir_encoding:
@@ -687,6 +815,7 @@ class FeatureGeneratorTorch(nn.Module):
                 if model.collider is not None:
                     ray_bundle = model.collider(ray_bundle)
 
+                model.proposal_sampler.num_nerf_samples_per_ray = self.samples_per_ray
                 ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
                 field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
                 weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
@@ -705,7 +834,9 @@ class FeatureGeneratorTorch(nn.Module):
 
         if self.rgb:
             rgb = field_outputs[FieldHeadNames.RGB][density_mask]
-            rgb = self.linear(rgb)
+            rgb = self.rgb_linear(rgb)
+
+            assert not torch.isnan(rgb).any()
             encodings.append(rgb)
 
         if self.density:
@@ -721,30 +852,43 @@ class FeatureGeneratorTorch(nn.Module):
             if torch.isinf(density).any():
                 CONSOLE.print("density has inf values: ", torch.isinf(density).sum())
                 density[torch.isinf(density)] = 1000000.0
-
+            density = self.density_linear(density)
+            assert not torch.isnan(density).any()
             encodings.append(density)
+
+        if self.rot_augmentation:
+            theta = torch.rand(1) * 2 * torch.pi
+
+            # Construct the rotation matrix
+            cos_theta = torch.cos(theta)
+            sin_theta = torch.sin(theta)
+            rot_matrix = torch.tensor(
+                [[cos_theta, -sin_theta, 0], [sin_theta, cos_theta, 0], [0, 0, 1]], device=model.device
+            )
+        else:
+            rot_matrix = torch.eye(3, device=model.device)
 
         if self.pos_encoding:
             positions = ray_samples.frustums.get_positions()[density_mask]
             positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
+
+            if self.rot_augmentation:
+                positions_normalized = torch.matmul(positions_normalized, rot_matrix)
+
             pos_encoding = self.pos_encoder(positions_normalized)
+            assert not torch.isnan(pos_encoding).any()
             encodings.append(pos_encoding)
 
         if self.dir_encoding:
             directions = ray_samples.frustums.directions[density_mask]
-            dir_encoding = self.dir_encoder(get_normalized_directions(directions))
+            directions = get_normalized_directions(directions)
+            if self.rot_augmentation:
+                directions = torch.matmul(directions, rot_matrix)
+            dir_encoding = self.dir_encoder(directions)
+
+            assert not torch.isnan(dir_encoding).any()
             encodings.append(dir_encoding)
 
-        if DEBUG_PLOT_SAMPLES:
-            positions = ray_samples.frustums.get_positions()[density_mask]
-            # plot the positions with plotly
-            data = {
-                "x": positions[:, 0].detach().cpu().numpy(),
-                "y": positions[:, 1].detach().cpu().numpy(),
-                "z": positions[:, 2].detach().cpu().numpy(),
-            }
-            fig = px.scatter_3d(data, x="x", y="y", z="z")
-            fig.show()
         out = torch.cat(encodings, dim=1).unsqueeze(0)
 
         # out: 1, num_dense, out_dim
@@ -756,7 +900,7 @@ class FeatureGeneratorTorch(nn.Module):
         total_dim += self.out_rgb_dim if self.rgb else 0
         total_dim += self.pos_encoder.get_out_dim() if self.pos_encoding else 0
         total_dim += self.dir_encoder.get_out_dim() if self.dir_encoding else 0
-        total_dim += 1 if self.density else 0
+        total_dim += self.out_density_dim if self.density else 0
         return total_dim
 
 

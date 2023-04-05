@@ -110,8 +110,8 @@
       "args": "wandb",
       "console": "integratedTerminal",
       "env": {
-        // "CUDA_LAUNCH_BLOCKING": "1",
-         "CUDA_VISIBLE_DEVICES": "2"
+        "CUDA_LAUNCH_BLOCKING": "1",
+         "CUDA_VISIBLE_DEVICES": "1"
       },
       "justMyCode": false
   },
@@ -153,7 +153,7 @@
     "type": "python",
     "request": "launch",
     "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/train_scripts/eval_sweep.py",
-    "args": ["--slurm","run","density direct no thresh", "density integration", "density+hist", "density", "rgb mask=0.5"],
+    "args": ["run","soft-hill-350"],
     "console": "integratedTerminal",
     "justMyCode": false,
     "env": {
