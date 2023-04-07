@@ -1,6 +1,7 @@
 from typing import Callable, Union, cast
 
 import torch
+from rich.console import Console
 from torch import nn
 from torch.nn import Parameter
 
@@ -11,6 +12,8 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.nerfacto_field import get_normalized_directions
 from nerfstudio.models.base_model import Model
 from nerfstudio.models.nerfacto import NerfactoModel
+
+CONSOLE = Console(width=120)
 
 
 class TransformerEncoderModel(torch.nn.Module):
@@ -208,10 +211,17 @@ class FeatureGeneratorTorch(nn.Module):
 
         if self.rgb:
             rgb = field_outputs[FieldHeadNames.RGB][density_mask]
-            rgb = self.rgb_linear(rgb)
-
             assert not torch.isnan(rgb).any()
-            encodings.append(rgb)
+            assert not torch.isinf(rgb).any()
+            print("rgb max: ", rgb.max())
+            print("rgb min: ", rgb.min())
+
+            rgb_out = self.rgb_linear(rgb)
+
+            assert not torch.isnan(rgb_out).any()
+            assert not torch.isinf(rgb_out).any()
+
+            encodings.append(rgb_out)
 
         if self.density:
             density = field_outputs[FieldHeadNames.DENSITY][density_mask]
@@ -226,6 +236,8 @@ class FeatureGeneratorTorch(nn.Module):
             if torch.isinf(density).any():
                 CONSOLE.print("density has inf values: ", torch.isinf(density).sum())
                 density[torch.isinf(density)] = 1000000.0
+
+            assert not torch.isnan(density).any()
             density = self.density_linear(density)
             assert not torch.isnan(density).any()
             encodings.append(density)

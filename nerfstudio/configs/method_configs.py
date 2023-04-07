@@ -340,12 +340,12 @@ method_configs["nesf"] = TrainerConfig(
     pipeline=NesfPipelineConfig(
         datamanager=NesfDataManagerConfig(
             dataparser=NesfDataParserConfig(),
-            train_num_rays_per_batch=4096,
-            eval_num_rays_per_batch=4096,
+            train_num_rays_per_batch=2048,
+            eval_num_rays_per_batch=12288,
             steps_per_model=11,
-            train_num_images_to_sample_from=8,
+            train_num_images_to_sample_from=1,
             train_num_times_to_repeat_images=4,
-            eval_num_images_to_sample_from=8,
+            eval_num_images_to_sample_from=1,
             eval_num_times_to_repeat_images=4,
             camera_optimizer=CameraOptimizerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)

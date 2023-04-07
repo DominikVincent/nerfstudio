@@ -39,6 +39,7 @@ EVENT_WRITERS = []
 EVENT_STORAGE = []
 GLOBAL_BUFFER = {}
 
+
 def reset_writer():
     write_out_storage()
     EVENT_WRITERS.clear()
@@ -47,6 +48,7 @@ def reset_writer():
     if wandb.run is not None:
         print("Finishing wandb run")
         wandb.run.finish()
+
 
 class EventName(enum.Enum):
     """Names of possible events that can be logged via Local Writer for convenience.
@@ -292,7 +294,7 @@ class WandbWriter(Writer):
 
     def __init__(self, log_dir: Path):
         if wandb.run is None:
-            wandb.init(project="mae-models-project", dir=str(log_dir), reinit=True)
+            wandb.init(project="nesf-models-project", dir=str(log_dir), reinit=True)
         print(wandb.run)
         print("Run ID:", wandb.run.id)
         print("Run name:", wandb.run.name)

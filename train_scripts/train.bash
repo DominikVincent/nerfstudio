@@ -3,7 +3,7 @@
 set -x  # Enable debug mode to print each command
 
 
-ns-train nerfacto \
+ns-train depth-nerfacto \
 	--vis wandb \
 	--pipeline.datamanager.camera-optimizer.mode off \
 	--save-only-latest-checkpoint True \
@@ -11,7 +11,7 @@ ns-train nerfacto \
 	--experiment-name $2 \
 	--output-dir $3 \
 	--data $1 \
-	--timestamp "17_03_23" \
+	--timestamp "07_04_23" \
 	--viewer.websocket-port 7006  
 	# --optimizers.proposal-networks.optimizer.weight-decay 0.0001 \
 

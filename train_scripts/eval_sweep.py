@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import argparse
-import multiprocessing
 import os
 import subprocess
 import time

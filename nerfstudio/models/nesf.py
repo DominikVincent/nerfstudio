@@ -1,3 +1,4 @@
+import math
 import random
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -30,7 +31,9 @@ from nerfstudio.utils.writer import put_config
 lt.monkey_patch()
 
 CONSOLE = Console(width=120)
-DEBUG_PLOT_SAMPLES = False
+DEBUG_PLOT_SAMPLES = True
+DEBUG_PLOT_WANDB_SAMPLES = True
+DEBUG_FILTER_POINTS = False
 
 
 @dataclass
@@ -49,26 +52,26 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """whether to use rgb as feature or not."""
     rgb_feature_dim: int = 16
     """the dimension of the rgb feature."""
-    density_feature_dim: int = 8
-    """the dimension of the density feature."""
     use_feature_pos: bool = True
     """whether to use pos as feature or not."""
     use_feature_dir: bool = True
     """whether to use viewing direction as feature or not."""
     use_feature_density: bool = True
     """whether to use the [0-1] normalized density as a feature."""
+    density_feature_dim: int = 8
+    """the dimension of the density feature."""
     density_threshold: float = 0.7
     """The threshold value for which to filter out samples."""
-    rot_augmentation: bool = False
+    rot_augmentation: bool = True
     """Whether to use random rotations around z-axis for data augmentation."""
 
-    feature_transformer_num_layers: int = 4
+    feature_transformer_num_layers: int = 6
     """The number of encoding layers in the feature transformer."""
     feature_transformer_num_heads: int = 8
     """The number of multihead attention heads in the feature transformer."""
     feature_transformer_dim_feed_forward: int = 64
     """The dimension of the feedforward network model in the feature transformer."""
-    feature_transformer_dropout_rate: float = 0.1
+    feature_transformer_dropout_rate: float = 0.2
     """The dropout rate in the feature transformer."""
     feature_transformer_feature_dim: int = 64
     """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
@@ -80,7 +83,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """The number of multihead attention heads in the feature transformer."""
     decoder_feature_transformer_dim_feed_forward: int = 64
     """The dimension of the feedforward network model in the feature transformer."""
-    decoder_feature_transformer_dropout_rate: float = 0.1
+    decoder_feature_transformer_dropout_rate: float = 0.2
     """The dropout rate in the feature transformer."""
     decoder_feature_transformer_feature_dim: int = 64
     """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
@@ -104,7 +107,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
      - sequential: we batch the samples by wrapping them sequentially into batches.
      - sliced: Sort points by x coordinate and then slice them into batches.
      - off: no batching is done."""
-    batch_size: int = 1024
+    batch_size: int = 512
 
     samples_per_ray: int = 10
     """When sampling the underlying nerfs. How many samples should be taken per ray."""
@@ -217,7 +220,11 @@ class NeuralSemanticFieldModel(Model):
             self.decoder = torch.nn.Identity()
 
             self.head = torch.nn.Sequential(
-                torch.nn.Linear(self.feature_transformer.get_out_dim(), output_size),
+                torch.nn.Linear(self.feature_transformer.get_out_dim(), 128),
+                torch.nn.ReLU(),
+                torch.nn.Linear(128, 128),
+                torch.nn.ReLU(),
+                torch.nn.Linear(128, output_size),
                 torch.nn.ReLU(),
             )
         self.learned_low_density_value = torch.nn.Parameter(torch.randn(output_size))
@@ -287,6 +294,29 @@ class NeuralSemanticFieldModel(Model):
         outs, weights, density_mask, misc = self.feature_model(ray_bundle, model)  # 1, low_dense, 49
         # CONSOLE.print("dense values: ", (density_mask).sum().item(), "/", density_mask.numel())
 
+        # filter points manually
+        if DEBUG_FILTER_POINTS:
+            Z_FILTER_VALUE = -0.49
+            points_dense = misc["ray_samples"].frustums.get_positions()[density_mask]
+            points_dense_mask = (points_dense[:, 2] > Z_FILTER_VALUE) & (torch.norm(points_dense[:, :2], dim=1) <= 1)
+            points_dense_mask = points_dense_mask.to(density_mask.device)
+            outs = outs[:, points_dense_mask, :]
+
+            points = misc["ray_samples"].frustums.get_positions()
+            points_mask = (points[:, :, 2] > Z_FILTER_VALUE) & (torch.norm(points[:, :, :2], dim=2) <= 1).to(
+                density_mask.device
+            )
+            density_mask = torch.logical_and(density_mask, points_mask)
+            print("density mask ", density_mask.sum(), " outs ", outs.shape[1])
+            MAX_COUNT_POINTS = 16384
+            if density_mask.sum() > MAX_COUNT_POINTS:
+                # randomly mask points such that we have MAX_COUNT_POINTS points
+                outs = outs[:, :MAX_COUNT_POINTS, :]
+                true_indices = torch.nonzero(density_mask.flatten()).squeeze()
+                true_indices = true_indices[:MAX_COUNT_POINTS]
+                density_mask = torch.zeros_like(density_mask)
+                density_mask.view(-1, 1)[true_indices] = 1
+
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
@@ -309,7 +339,7 @@ class NeuralSemanticFieldModel(Model):
                 ids_restore = ids_shuffle
             elif self.config.batching_mode == "sliced":
                 cell_content = self.config.batch_size
-                columns_per_row = int(sqrt(outs.shape[1] / cell_content))
+                columns_per_row = max(int(sqrt(W / cell_content)), 1)
                 row_size = columns_per_row * cell_content
                 row_count = ceil(outs.shape[1] / row_size)
                 print(
@@ -347,7 +377,7 @@ class NeuralSemanticFieldModel(Model):
                     ids_shuffle[i * row_size : (i + 1) * row_size] = row_idx[torch.argsort(points_row_y)]
 
                 ids_restore = torch.argsort(ids_shuffle)
-                if DEBUG_PLOT_SAMPLES:
+                if DEBUG_PLOT_SAMPLES or DEBUG_PLOT_WANDB_SAMPLES:
                     points_pad = torch.nn.functional.pad(points, (0, 0, 0, padding))
                     colors_pad = torch.nn.functional.pad(misc["rgb"][density_mask], (0, 0, 0, padding))
                     for i in range(0, W // self.config.batch_size, 10):
@@ -419,6 +449,17 @@ class NeuralSemanticFieldModel(Model):
                 )
                 fig = go.Figure(data=[scatter], layout=layout)
                 fig.show()
+
+            if DEBUG_PLOT_WANDB_SAMPLES and random.random() < (1 / 500):
+                points_pad_reordered = points_pad[ids_shuffle, :].to("cpu")
+                points_pad_reordered = points_pad_reordered.reshape(-1, self.config.batch_size, 3)
+                points = torch.empty((0, 3))
+                colors = torch.empty((0, 3))
+                for i in range(points_pad_reordered.shape[0]):
+                    points = torch.cat((points, points_pad_reordered[i, :, :]))
+                    colors = torch.cat((colors, torch.randn((1, 3)).repeat(self.config.batch_size, 1) * 255))
+                point_cloud = torch.cat((points, colors), dim=1).detach().cpu().numpy()
+                wandb.log({"point_samples": wandb.Object3D(point_cloud)}, step=wandb.run.step)
         else:
             ids_restore = None
             mask = None
@@ -472,7 +513,8 @@ class NeuralSemanticFieldModel(Model):
         elif self.config.mode == "semantics":
             semantics = torch.empty((*density_mask.shape, len(self.semantics.classes)), device=self.device)  # 64, 48, 6
             semantics[density_mask] = field_outputs  # 1, num_dense_samples, 6
-            semantics[~density_mask] = self.learned_low_density_value
+            # semantics[~density_mask] = self.learned_low_density_value
+            semantics[~density_mask] = torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], device=self.device)
 
             # debug semantics
             # low_density = semantics[~density_mask]
@@ -486,6 +528,7 @@ class NeuralSemanticFieldModel(Model):
 
             # semantics colormaps
             semantic_labels = torch.argmax(torch.nn.functional.softmax(semantics, dim=-1), dim=-1)
+            self.semantics.colors = self.semantics.colors.to(self.device)
             semantics_colormap = self.semantics.colors[semantic_labels].to(self.device)
             outputs["semantics_colormap"] = semantics_colormap
             outputs["rgb"] = semantics_colormap

@@ -6,8 +6,9 @@ from nerfstudio.configs.method_configs import method_configs
 
 def run_nesf(vis: str = "wandb"):
     # data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config.json")
-    data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json")
+    # data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json")
     # data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_100.json")
+    data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_1.json")
 
     OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/")
     DATA_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11")

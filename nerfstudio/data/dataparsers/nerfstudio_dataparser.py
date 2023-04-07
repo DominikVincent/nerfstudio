@@ -62,7 +62,7 @@ class NerfstudioDataParserConfig(DataParserConfig):
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
     train_split_percentage: float = 0.9
     """The percent of images to use for training. The remaining images are for eval."""
-    depth_unit_scale_factor: float = 1e-3
+    depth_unit_scale_factor: float = 1
     """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
 
 
