@@ -31,9 +31,9 @@ from nerfstudio.utils.writer import put_config
 lt.monkey_patch()
 
 CONSOLE = Console(width=120)
-DEBUG_PLOT_SAMPLES = True
+DEBUG_PLOT_SAMPLES = False
 DEBUG_PLOT_WANDB_SAMPLES = True
-DEBUG_FILTER_POINTS = False
+DEBUG_FILTER_POINTS = True
 
 
 @dataclass
@@ -62,6 +62,8 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """the dimension of the density feature."""
     density_threshold: float = 0.7
     """The threshold value for which to filter out samples."""
+    surface_sampling: bool = True
+    """Whether to only sample one point on a rays, which corresponds to the surface."""
     rot_augmentation: bool = True
     """Whether to use random rotations around z-axis for data augmentation."""
 
@@ -107,7 +109,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
      - sequential: we batch the samples by wrapping them sequentially into batches.
      - sliced: Sort points by x coordinate and then slice them into batches.
      - off: no batching is done."""
-    batch_size: int = 512
+    batch_size: int = 2048
 
     samples_per_ray: int = 10
     """When sampling the underlying nerfs. How many samples should be taken per ray."""
@@ -170,6 +172,7 @@ class NeuralSemanticFieldModel(Model):
             density_threshold=self.config.density_threshold,
             rot_augmentation=self.config.rot_augmentation,
             samples_per_ray=self.config.samples_per_ray,
+            surface_sampling=self.config.surface_sampling,
         )
 
         # Feature Transformer
@@ -296,14 +299,18 @@ class NeuralSemanticFieldModel(Model):
 
         # filter points manually
         if DEBUG_FILTER_POINTS:
-            Z_FILTER_VALUE = -0.49
+            Z_FILTER_VALUE = -2.49
+            Z_FILTER_VALUE = -1.0
+            XY_DISTANCE = 1.0
             points_dense = misc["ray_samples"].frustums.get_positions()[density_mask]
-            points_dense_mask = (points_dense[:, 2] > Z_FILTER_VALUE) & (torch.norm(points_dense[:, :2], dim=1) <= 1)
+            points_dense_mask = (points_dense[:, 2] > Z_FILTER_VALUE) & (
+                torch.norm(points_dense[:, :2], dim=1) <= XY_DISTANCE
+            )
             points_dense_mask = points_dense_mask.to(density_mask.device)
             outs = outs[:, points_dense_mask, :]
 
             points = misc["ray_samples"].frustums.get_positions()
-            points_mask = (points[:, :, 2] > Z_FILTER_VALUE) & (torch.norm(points[:, :, :2], dim=2) <= 1).to(
+            points_mask = (points[:, :, 2] > Z_FILTER_VALUE) & (torch.norm(points[:, :, :2], dim=2) <= XY_DISTANCE).to(
                 density_mask.device
             )
             density_mask = torch.logical_and(density_mask, points_mask)

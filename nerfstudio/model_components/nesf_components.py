@@ -149,6 +149,7 @@ class FeatureGeneratorTorch(nn.Module):
         density: bool = True,
         rot_augmentation: bool = False,
         samples_per_ray: int = 10,
+        surface_sampling: bool = True,
     ):
         super().__init__()
         self.aabb = Parameter(aabb, requires_grad=False)
@@ -164,6 +165,7 @@ class FeatureGeneratorTorch(nn.Module):
 
         self.rot_augmentation: bool = rot_augmentation
         self.samples_per_ray = samples_per_ray
+        self.surface_sampling = surface_sampling
 
         self.rgb_linear = nn.Sequential(
             nn.Linear(3, 128),
@@ -196,6 +198,22 @@ class FeatureGeneratorTorch(nn.Module):
                 ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
                 field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
                 weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
+
+                if self.surface_sampling:
+                    cumulative_weights = torch.cumsum(weights[..., 0], dim=-1)  # [..., num_samples]
+                    split = torch.ones((*weights.shape[:-2], 1), device=weights.device) * 0.5  # [..., 1]
+                    median_index = torch.searchsorted(cumulative_weights, split, side="left")  # [..., 1]
+                    # median_index2 = torch.searchsorted(cumulative_weights, split, side="right")  # [..., 1]
+                    # median_index = torch.cat((median_index, median_index2), dim=-1)
+                    median_index = torch.clamp(median_index, 0, ray_samples.shape[-1] - 1)  # [..., 1]
+
+                    field_outputs[FieldHeadNames.RGB] = field_outputs[FieldHeadNames.RGB][
+                        torch.arange(median_index.shape[0]), median_index.squeeze(), ...
+                    ].unsqueeze(1)
+                    field_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY][
+                        torch.arange(median_index.shape[0]), median_index.squeeze(), :
+                    ].unsqueeze(1)
+                    ray_samples = ray_samples[torch.arange(median_index.shape[0]), median_index.squeeze()].unsqueeze(1)
         else:
             raise NotImplementedError("Only NerfactoModel is supported for now")
 

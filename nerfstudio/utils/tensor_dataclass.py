@@ -290,6 +290,17 @@ class TensorDataclass:
 
         return dataclasses.replace(self, **new_fields)
 
+    def unsqueeze(self: TensorDataclassT, dim: int) -> TensorDataclassT:
+        """Returns a new TensorDataclass with the same data but with a new shape.
+
+        Args:
+            dim: The dimension to unsqueeze.
+
+        Returns:
+            A new TensorDataclass with the same data but with a new shape.
+        """
+        return self._apply_fn_to_fields(lambda x: x.unsqueeze(dim))
+
     def _apply_fn_to_dict(
         self,
         dict_: Dict,

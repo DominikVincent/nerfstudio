@@ -25,7 +25,7 @@ parser.add_argument(
     "--eval_config",
     help="The nesf eval config",
     type=str,
-    default="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_test.json",
+    default="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_test_10.json",
 )
 parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/mae-models-project")
 
@@ -33,12 +33,6 @@ subparsers = parser.add_subparsers(dest="command")
 
 sweep_parser = subparsers.add_parser("sweep")
 sweep_parser.add_argument("--sweep_id", help="The wandb sweep id", type=str, default="kfsdevg7")
-sweep_parser.add_argument(
-    "--eval_config",
-    help="The nesf eval config",
-    type=str,
-    default="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_test.json",
-)
 
 run_parser = subparsers.add_parser("run")
 run_parser.add_argument("runs", nargs="+", help="The names of the wandb runs to evaluate", type=str)
@@ -99,7 +93,7 @@ conda activate nerfstudio3
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p QRTX5000 --gres=gpu:1 -t 60:00 --mem-per-cpu 2000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p QRTX5000 --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output
