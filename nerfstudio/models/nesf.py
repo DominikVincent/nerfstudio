@@ -18,7 +18,7 @@ from torchmetrics.classification import MulticlassJaccardIndex
 from typing_extensions import Literal
 
 import wandb
-from nerfstudio.cameras.rays import RayBundle
+from nerfstudio.cameras.rays import RayBundle, stack_ray_bundles
 from nerfstudio.data.dataparsers.base_dataparser import Semantics
 from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
 from nerfstudio.field_components.field_heads import FieldHeadNames
@@ -95,7 +95,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
     mask_ratio: float = 0.5
     """The ratio of pixels that are masked out during pretraining."""
 
-    space_partitioning: Literal["row_wise", "evenly"] = "evenly"
+    space_partitioning: Literal["row_wise", "random", "evenly"] = "random"
     """How to partition the image space when rendering."""
 
     density_prediction: Literal["direct", "integration"] = "direct"
@@ -296,7 +296,25 @@ class NeuralSemanticFieldModel(Model):
 
         outs, weights, density_mask, misc = self.feature_model(ray_bundle, model)  # 1, low_dense, 49
         # CONSOLE.print("dense values: ", (density_mask).sum().item(), "/", density_mask.numel())
+        # print("Outs shape: ", outs.shape)
+        # print("density_mask shape: ", density_mask.shape)
+        # print("density_mask shape: ", density_mask.sum().item())
+        # points = misc["ray_samples"].frustums.get_positions()[density_mask].cpu().numpy()
+        # scatter = go.Scatter3d(
+        #     x=points[:, 0],
+        #     y=points[:, 1],
+        #     z=points[:, 2],
+        #     mode="markers",
+        #     marker=dict(size=1, opacity=0.8),
+        # )
 
+        # # create a layout with axes labels
+        # layout = go.Layout(
+        #     title=f"RGB points: {points.shape}",
+        #     scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+        # )
+        # fig = go.Figure(data=[scatter], layout=layout)
+        # fig.show()
         # filter points manually
         if DEBUG_FILTER_POINTS:
             Z_FILTER_VALUE = -2.49
@@ -314,9 +332,9 @@ class NeuralSemanticFieldModel(Model):
                 density_mask.device
             )
             density_mask = torch.logical_and(density_mask, points_mask)
-            print("density mask ", density_mask.sum(), " outs ", outs.shape[1])
             MAX_COUNT_POINTS = 16384
             if density_mask.sum() > MAX_COUNT_POINTS:
+                CONSOLE.print("There are too many points, we are limiting to ", MAX_COUNT_POINTS, " points.")
                 # randomly mask points such that we have MAX_COUNT_POINTS points
                 outs = outs[:, :MAX_COUNT_POINTS, :]
                 true_indices = torch.nonzero(density_mask.flatten()).squeeze()
@@ -366,7 +384,6 @@ class NeuralSemanticFieldModel(Model):
                     if W % (columns_per_row * self.config.batch_size) != 0
                     else 0
                 )
-                CONSOLE.print("padding with: ", padding)
                 outs = torch.nn.functional.pad(outs, (0, 0, 0, padding))
                 masking_top = torch.full((W,), False, dtype=torch.bool)
                 masking_bottom = torch.full((padding,), True, dtype=torch.bool)
@@ -457,7 +474,7 @@ class NeuralSemanticFieldModel(Model):
                 fig = go.Figure(data=[scatter], layout=layout)
                 fig.show()
 
-            if DEBUG_PLOT_WANDB_SAMPLES and random.random() < (1 / 500):
+            if DEBUG_PLOT_WANDB_SAMPLES and random.random() < (1 / 5000):
                 points_pad_reordered = points_pad[ids_shuffle, :].to("cpu")
                 points_pad_reordered = points_pad_reordered.reshape(-1, self.config.batch_size, 3)
                 points = torch.empty((0, 3))
@@ -519,6 +536,18 @@ class NeuralSemanticFieldModel(Model):
             outputs["rgb"] = rgb
         elif self.config.mode == "semantics":
             semantics = torch.empty((*density_mask.shape, len(self.semantics.classes)), device=self.device)  # 64, 48, 6
+            print(
+                "semantics: ",
+                semantics.shape,
+                " field_outputs: ",
+                field_outputs.shape,
+                " density_mask: ",
+                density_mask.shape,
+                "density_mask max: ",
+                density_mask.max(),
+                " density_mask: ",
+                density_mask,
+            )
             semantics[density_mask] = field_outputs  # 1, num_dense_samples, 6
             # semantics[~density_mask] = self.learned_low_density_value
             semantics[~density_mask] = torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], device=self.device)
@@ -654,7 +683,7 @@ class NeuralSemanticFieldModel(Model):
 
     @torch.no_grad()
     def get_outputs_for_camera_ray_bundle(
-        self, camera_ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None
+        self, camera_ray_bundle: Union[RayBundle, List[RayBundle]], batch: Union[Dict[str, Any], None] = None
     ) -> Dict[str, torch.Tensor]:
         """Takes in camera parameters and computes the output of the model.
 
@@ -662,6 +691,20 @@ class NeuralSemanticFieldModel(Model):
             camera_ray_bundle: ray bundle to calculate outputs over
             :param batch: additional information of the batch here it includes at least the model
         """
+        if isinstance(camera_ray_bundle, list):
+            images = len(camera_ray_bundle)
+            camera_ray_bundle = stack_ray_bundles(camera_ray_bundle)
+            image_height, image_width = camera_ray_bundle.origins.shape[:2]
+            image_height = image_height // images
+            use_all_pixels = False
+        else:
+            use_all_pixels = True
+            image_height, image_width = camera_ray_bundle.origins.shape[:2]
+
+        def batch_randomly(max_length, batch_size):
+            indices = torch.randperm(max_length)
+            reverse_indices = torch.argsort(indices)
+            return indices, reverse_indices
 
         def batch_evenly(max_length, batch_size):
             indices = torch.arange(max_length)
@@ -680,11 +723,12 @@ class NeuralSemanticFieldModel(Model):
             return torch.cat(final_indices, dim=0), reverse_indices
 
         num_rays_per_chunk = self.config.eval_num_rays_per_chunk
-        image_height, image_width = camera_ray_bundle.origins.shape[:2]
         num_rays = len(camera_ray_bundle)
         outputs_lists = defaultdict(list)
-        if self.config.space_partitioning != "row_wise":
+        if self.config.space_partitioning == "evenly":
             ray_order, reversed_ray_order = batch_evenly(num_rays, num_rays_per_chunk)
+        elif self.config.space_partitioning == "random":
+            ray_order, reversed_ray_order = batch_randomly(num_rays, num_rays_per_chunk)
         else:
             ray_order = []
             reversed_ray_order = None
@@ -713,6 +757,8 @@ class NeuralSemanticFieldModel(Model):
             else:
                 ordered_output_tensor = torch.cat(outputs_list)  # type: ignore
 
+            if not use_all_pixels:
+                ordered_output_tensor = ordered_output_tensor[: image_height * image_width]
             outputs[output_name] = ordered_output_tensor.view(image_height, image_width, -1)  # type: ignore
         return outputs
 

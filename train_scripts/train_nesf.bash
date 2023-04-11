@@ -13,14 +13,15 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--steps-per-eval-batch 100 \
     --steps-per-eval-image 500 \
     --steps-per-save 5000 \
-    --max-num-iterations 1600000 \
+    --max-num-iterations 500000 \
 	--pipeline.datamanager.steps-per-model 1 \
-	--pipeline.datamanager.train-num-images-to-sample-from 1 \
+	--pipeline.datamanager.train-num-images-to-sample-from 4 \
 	--pipeline.datamanager.train-num-times-to-repeat-images 4 \
-	--pipeline.datamanager.eval-num-images-to-sample-from 1 \
+	--pipeline.datamanager.eval-num-images-to-sample-from 4 \
 	--pipeline.datamanager.eval-num-times-to-repeat-images 4 \
-	--pipeline.datamanager.train-num-rays-per-batch 16384 \
-	--pipeline.datamanager.eval-num-rays-per-batch 16384 \
+	--pipeline.datamanager.train-num-rays-per-batch 20481 \
+	--pipeline.datamanager.eval-num-rays-per-batch 20481 \
+	--pipeline.model.eval-num-rays-per-chunk 20481 \
 	--pipeline.model.mode semantics \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.use-feature-rgb True \
@@ -42,7 +43,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.decoder-feature-transformer-dropout-rate 0.2 \
 	--pipeline.model.decoder-feature-transformer-feature-dim 32 \
 	--pipeline.model.batching-mode "sliced" \
-	--pipeline.model.batch_size 4096 \
+	--pipeline.model.batch_size 2048 \
 	--pipeline.model.samples_per_ray 10 \
 	nesf-data \
 	--data-config $DATA_CONFIG 

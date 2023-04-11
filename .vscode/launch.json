@@ -106,8 +106,8 @@
       "type": "python",
       "request": "launch",
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/tests/try_nesf.py",
-      "args": "viewer",
-      // "args": "wandb",
+      // "args": "viewer",
+      "args": "wandb",
       "console": "integratedTerminal",
       "env": {
         "CUDA_LAUNCH_BLOCKING": "1",
@@ -141,7 +141,7 @@
       "type": "python",
       "request": "launch",
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/eval.py",
-      "args": ["--load-config", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-29_164852/config.yml"],
+      "args": ["--load-config", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-04-10_215055/auto_eval_config.yml"],
       "console": "integratedTerminal",
       "justMyCode": false,
       "env": {
@@ -153,7 +153,7 @@
     "type": "python",
     "request": "launch",
     "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/train_scripts/eval_sweep.py",
-    "args": ["run","soft-hill-350"],
+    "args": ["run","surface-multi-cam-eval"],
     "console": "integratedTerminal",
     "justMyCode": false,
     "env": {

@@ -55,6 +55,7 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """how many images should be evaluated per scene when evaluating all images. -1 means all"""
     save_images = False
     """save images during all image evaluation"""
+    images_to_sample_during_eval_image: int = 4
 
 
 class NesfPipeline(Pipeline):
@@ -168,7 +169,16 @@ class NesfPipeline(Pipeline):
             step: current iteration step
         """
         self.eval()
-        image_idx, model_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
+        if self.config.images_to_sample_during_eval_image > 1:
+            image_idx, model_idx, camera_ray_bundle, batch = self.datamanager.next_eval_images(
+                step, self.config.images_to_sample_during_eval_image
+            )
+            image_idx = image_idx[0]
+            model_idx = model_idx[0]
+            batch = batch[0]
+        else:
+            image_idx, model_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
+
         batch["image_idx"] = image_idx
         batch["model_idx"] = model_idx
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
@@ -214,26 +224,32 @@ class NesfPipeline(Pipeline):
         ) as progress:
             task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
             for model_idx, fixed_indices_eval_dataloader in enumerate(self.datamanager.fixed_indices_eval_dataloaders):
+                ray_bundles = []
                 for image_idx, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
+                    if image_idx >= self.config.images_to_sample_during_eval_image - 1:
+                        break
+                    ray_bundles.insert(0, camera_ray_bundle)
+                for i, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
+                    ray_bundles.insert(0, camera_ray_bundle)
                     batch["model_idx"] = model_idx
-                    batch["image_idx"] = image_idx
+                    batch["image_idx"] = batch["image_idx"]
+                    print("model_idx", model_idx, "image_idx", batch["image_idx"])
 
-                    if (
-                        image_idx >= self.config.images_per_all_evaluation
-                        and self.config.images_per_all_evaluation >= 0
-                    ):
+                    if i >= self.config.images_per_all_evaluation and self.config.images_per_all_evaluation >= 0:
                         break
                     # time this the following line
                     inner_start = time()
                     height, width = camera_ray_bundle.shape
                     num_rays = height * width
-                    outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
+                    outputs = self.model.get_outputs_for_camera_ray_bundle(ray_bundles, batch)
                     metrics_dict, image_dict = self.model.get_image_metrics_and_images(outputs, batch)
                     assert "num_rays_per_sec" not in metrics_dict
                     metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)
                     fps_str = "fps"
                     assert fps_str not in metrics_dict
                     metrics_dict[fps_str] = metrics_dict["num_rays_per_sec"] / (height * width)
+                    metrics_dict["image_idx"] = batch["image_idx"]
+                    metrics_dict["model_idx"] = batch["model_idx"]
                     metrics_dict_list.append(metrics_dict)
 
                     img = image_dict["img"]
@@ -244,18 +260,21 @@ class NesfPipeline(Pipeline):
 
                     img = img.cpu().numpy()
                     if save_path is not None:
-                        file_path = save_path / f"{model_idx:03d}" / f"{image_idx:04d}.png"
+                        file_path = save_path / f"{model_idx:03d}" / f"{batch['image_idx']:04d}.png"
                         # create the directory if it does not exist
                         if not file_path.parent.exists():
                             file_path.parent.mkdir(parents=True)
                         # save the image
                         img_pil = Image.fromarray((img * 255).astype(np.uint8))
                         img_pil.save(file_path)
+                    ray_bundles.pop()
                     step += 1
                     progress.advance(task)
         # average the metrics list
         metrics_dict = {}
         for key in metrics_dict_list[0].keys():
+            if key == "image_idx" or key == "model_idx":
+                continue
             metrics_dict[key] = float(
                 torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
             )

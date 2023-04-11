@@ -314,6 +314,25 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             return image_idx, model_idx, camera_ray_bundle, batch
         raise ValueError("No more eval images")
 
+    def next_eval_images(self, step: int, images: int) -> Tuple[List[int], List[int], List[RayBundle], List[Dict]]:
+        model_idx = self.eval_image_model % self.eval_datasets.set_count()
+        self.eval_image_model += 1
+
+        image_idxs = []
+        model_idxs = []
+        ray_bundles = []
+        batches = []
+        for _ in range(images):
+            for camera_ray_bundle, batch in self.eval_dataloaders[model_idx]:
+                assert camera_ray_bundle.camera_indices is not None
+                image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
+
+                image_idxs.append(image_idx)
+                model_idxs.append(model_idx)
+                ray_bundles.append(camera_ray_bundle)
+                batches.append(batch)
+        return image_idxs, model_idxs, ray_bundles, batches
+
     def get_param_groups(self) -> Dict[str, List[Parameter]]:  # pylint: disable=no-self-use
         """Get the param groups for the data manager.
         Returns:

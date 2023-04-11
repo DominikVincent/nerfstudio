@@ -328,22 +328,26 @@ method_configs["phototourism"] = TrainerConfig(
 )
 
 
+RAYS_PER_BATCH = 20481
+MAX_NUM_ITERATIONS = 500000
+LR_START = 2e-4
+LR_END = 1e-5
 method_configs["nesf"] = TrainerConfig(
     method_name="nesf",
     experiment_name="/tmp",
     steps_per_eval_batch=100,
-    steps_per_eval_image=1,
-    steps_per_save=2000,
-    max_num_iterations=500000,
+    steps_per_eval_image=500,
+    steps_per_save=5000,
+    max_num_iterations=MAX_NUM_ITERATIONS,
     steps_per_eval_all_images=1000000,
     mixed_precision=False,
     pipeline=NesfPipelineConfig(
         datamanager=NesfDataManagerConfig(
             dataparser=NesfDataParserConfig(),
-            train_num_rays_per_batch=16384,
-            eval_num_rays_per_batch=16384,
+            train_num_rays_per_batch=RAYS_PER_BATCH,
+            eval_num_rays_per_batch=RAYS_PER_BATCH,
             steps_per_model=11,
-            train_num_images_to_sample_from=1,
+            train_num_images_to_sample_from=4,
             train_num_times_to_repeat_images=4,
             eval_num_images_to_sample_from=4,
             eval_num_times_to_repeat_images=4,
@@ -351,37 +355,37 @@ method_configs["nesf"] = TrainerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
             ),
         ),
-        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=2048, mode="semantics", pretrain=False),
+        model=NeuralSemanticFieldConfig(eval_num_rays_per_chunk=RAYS_PER_BATCH, mode="semantics", pretrain=False),
     ),
     optimizers={
         "feature_network": {
-            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=LR_START, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=LR_END, max_steps=MAX_NUM_ITERATIONS),
             # "scheduler": None,
         },
         "feature_transformer": {
-            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=LR_START, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=LR_END, max_steps=MAX_NUM_ITERATIONS),
             # "scheduler": None,
         },
         "learned_low_density_params": {
-            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=LR_START, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=LR_END, max_steps=MAX_NUM_ITERATIONS),
             # "scheduler": None,
         },
         "decoder": {
-            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=LR_START, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=LR_END, max_steps=MAX_NUM_ITERATIONS),
             # "scheduler": None,
         },
         "head": {
-            "optimizer": AdamOptimizerConfig(lr=1e-4, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=1e-5, max_steps=30000),
+            "optimizer": AdamOptimizerConfig(lr=LR_START, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=LR_END, max_steps=MAX_NUM_ITERATIONS),
             # "scheduler": None,
         },
     },
     viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7011, quit_on_train_completion=False),
-    save_only_latest_checkpoint=False,
+    save_only_latest_checkpoint=True,
     vis="viewer",
     logging=LoggingConfig(steps_per_log=10),
 )

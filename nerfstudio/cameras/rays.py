@@ -17,7 +17,7 @@ Some ray datastructures.
 """
 import random
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 import torch
 from torchtyping import TensorType
@@ -243,3 +243,40 @@ class RayBundle(TensorDataclass):
         )
 
         return ray_samples
+
+
+def stack_ray_bundles(ray_bundles: List[RayBundle]) -> RayBundle:
+    """
+    Stacks a list of RayBundle objects together along the first dimension.
+
+    Args:
+        ray_bundles: List of RayBundle objects to stack.
+
+    Returns:
+        RayBundle object with stacked data.
+    """
+    stacked_origins = torch.cat([rb.origins for rb in ray_bundles], dim=0)
+    stacked_directions = torch.cat([rb.directions for rb in ray_bundles], dim=0)
+    stacked_pixel_area = torch.cat([rb.pixel_area for rb in ray_bundles], dim=0)
+    stacked_camera_indices = (
+        None if ray_bundles[0].camera_indices is None else torch.cat([rb.camera_indices for rb in ray_bundles], dim=0)
+    )
+    stacked_nears = None if ray_bundles[0].nears is None else torch.cat([rb.nears for rb in ray_bundles], dim=0)
+    stacked_fars = None if ray_bundles[0].fars is None else torch.cat([rb.fars for rb in ray_bundles], dim=0)
+    stacked_metadata = (
+        None
+        if ray_bundles[0].metadata is None
+        else {k: torch.cat([rb.metadata[k] for rb in ray_bundles], dim=0) for k in ray_bundles[0].metadata}
+    )
+    stacked_times = None if ray_bundles[0].times is None else torch.cat([rb.times for rb in ray_bundles], dim=0)
+
+    return RayBundle(
+        origins=stacked_origins,
+        directions=stacked_directions,
+        pixel_area=stacked_pixel_area,
+        camera_indices=stacked_camera_indices,
+        nears=stacked_nears,
+        fars=stacked_fars,
+        metadata=stacked_metadata,
+        times=stacked_times,
+    )

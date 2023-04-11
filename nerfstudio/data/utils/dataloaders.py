@@ -24,7 +24,6 @@ import time
 from abc import abstractmethod
 from typing import Dict, Optional, Tuple, Union
 
-
 import torch
 from rich.progress import Console, track
 from torch.utils.data import Dataset
@@ -218,6 +217,7 @@ class FixedIndicesEvalDataloader(EvalDataloader):
         super().__init__(input_dataset, device, **kwargs)
         if image_indices is None:
             self.image_indices = list(range(len(input_dataset)))
+            random.Random(4).shuffle(self.image_indices)
         else:
             self.image_indices = image_indices
         self.count = 0
