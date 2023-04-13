@@ -1,10 +1,10 @@
 {
   "experiment_name": "/tmp",
   "method_name": "nesf",
-  "checkpoint": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-03-15_194428/nerfstudio_models/step-000029999.ckpt",
+  "checkpoint": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-04-10_215055/nerfstudio_models/step-000145000.ckpt",
   "results": {
-    "miou": 0.6737909317016602,
-    "num_rays_per_sec": 1585.8829345703125,
-    "fps": 0.024198653176426888
+    "miou": 0.508197009563446,
+    "num_rays_per_sec": 28945.837890625,
+    "fps": 0.4416784346103668
   }
 }

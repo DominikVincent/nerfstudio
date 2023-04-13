@@ -164,6 +164,7 @@ class Nesf(DataParser):
             if "set_type" in conf:
                 split = conf["set_type"]
             dataparser_output = nerfstudio.get_dataparser_outputs(split=split)
+            CONSOLE.print(f"[green] loaded dataparser_output from {nerfstudio.config.data}")
             print(len(dataparser_output.image_filenames))
             print([int(path.name[5:-4]) for path in dataparser_output.image_filenames])
 
@@ -172,12 +173,14 @@ class Nesf(DataParser):
 
             # parent path of file
             data_path = dataparser_output.image_filenames[0].parent.resolve()
+            CONSOLE.print(f"Loading model from {data_path}")
             model = self._load_model(
                 load_dir=Path(conf["load_dir"]),
                 load_step=conf["load_step"],
                 data_dir=data_path,
                 config=conf["model_config"],
             ).to("cpu")
+            CONSOLE.print(f"[green] loaded model from {data_path}")
 
             # get the list of semantic images. For each image there should be a semantic image.
             semantic_paths = []
@@ -206,6 +209,7 @@ class Nesf(DataParser):
         #         # TODO safe model here
         #     },
         # )
+        CONSOLE.print("Returned NESF dataparser outputs")
         return data_parser_outputs
 
     def _load_model(

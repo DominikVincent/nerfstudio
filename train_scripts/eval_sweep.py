@@ -21,6 +21,7 @@ parser.add_argument("--slurm", help="Use slurm", action="store_true", default=Fa
 parser.add_argument(
     "--fix_config", help="whether to use wandb config to fix the local model config", action="store_true", default=False
 )
+parser.add_argument("--partition", help="Which slurm partition to use", type=str, default="QRTX5000")
 parser.add_argument(
     "--eval_config",
     help="The nesf eval config",
@@ -72,7 +73,7 @@ def sweep_run_to_path(run):
     )
 
 
-def ns_eval(config_path, output_path, name, use_slurm=False):
+def ns_eval(config_path, output_path, name, use_slurm=False, partition="QRTX5000"):
     command = f"ns-eval --load-config {config_path} --output-path {output_path} --use-wandb --name '{name}'"
 
     if use_slurm:
@@ -93,7 +94,7 @@ conda activate nerfstudio3
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p QRTX5000 --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p {partition} --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output
@@ -115,7 +116,7 @@ conda activate nerfstudio3
     return return_code
 
 
-def dispatch_eval_run(run: EvalRun, use_slurm=False, wandb_config=None):
+def dispatch_eval_run(run: EvalRun, use_slurm=False, wandb_config=None, partition="QRTX5000"):
 
     out_path = run.path / "auto_eval_config.yml"
     input_path = run.path / "config.yml"
@@ -141,25 +142,37 @@ def dispatch_eval_run(run: EvalRun, use_slurm=False, wandb_config=None):
     # save config as yaml
     out_path.write_text(yaml.dump(config), "utf8")
 
-    ns_eval(out_path, run.path / "auto_eval.json", name=run.name, use_slurm=use_slurm)
+    ns_eval(out_path, run.path / "auto_eval.json", name=run.name, use_slurm=use_slurm, partition=partition)
     print(" ######################### Done with: ", run, " ######################### ")
 
 
-def sweep_eval(project_name: str, sweep_id: str, eval_config: Union[None, Path] = None, use_slurm: bool = True):
+def sweep_eval(
+    project_name: str,
+    sweep_id: str,
+    eval_config: Union[None, Path] = None,
+    use_slurm: bool = True,
+    partition: str = "QRTX5000",
+):
     runs = get_sweep_runs(sweep_id, project_name)
     for i, run in enumerate(runs):
         path = sweep_run_to_path(run)
         eval_run = EvalRun(path, run.name + "_test", eval_config)
-        dispatch_eval_run(eval_run, wandb_config=run.config, use_slurm=use_slurm)
+        dispatch_eval_run(eval_run, wandb_config=run.config, use_slurm=use_slurm, partition=partition)
 
 
-def runs_eval(runs: List[str], project_name: str, use_slurm: bool = True, eval_config: Union[None, Path] = None):
+def runs_eval(
+    runs: List[str],
+    project_name: str,
+    use_slurm: bool = True,
+    eval_config: Union[None, Path] = None,
+    partition: str = "QRTX5000",
+):
     wandb_runs = get_runs(run_names=runs, project_name=project_name)
     for i, wandb_run in enumerate(wandb_runs):
         path = sweep_run_to_path(wandb_run)
         eval_run = EvalRun(path, wandb_run.name + "_test", eval_config)
 
-        dispatch_eval_run(eval_run, use_slurm=use_slurm)
+        dispatch_eval_run(eval_run, use_slurm=use_slurm, partition=partition)
 
 
 if __name__ == "__main__":
@@ -169,7 +182,7 @@ if __name__ == "__main__":
         proj_name = args.proj_name
         sweep_id = args.sweep_id
         eval_config = Path(args.eval_config) if args.eval_config is not None or args.eval_config != "" else None
-        sweep_eval(proj_name, sweep_id, eval_config)
+        sweep_eval(proj_name, sweep_id, eval_config, partition=args.partition, use_slurm=args.slurm)
     elif args.command == "run":
         eval_config = Path(args.eval_config) if args.eval_config is not None or args.eval_config != "" else None
-        runs_eval(args.runs, args.proj_name, args.slurm, eval_config=eval_config)
+        runs_eval(args.runs, args.proj_name, use_slurm=args.slurm, partition=args.partition, eval_config=eval_config)

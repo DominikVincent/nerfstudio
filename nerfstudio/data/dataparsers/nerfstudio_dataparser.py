@@ -75,6 +75,7 @@ class Nerfstudio(DataParser):
 
     def _generate_dataparser_outputs(self, split="train"):
         # pylint: disable=too-many-statements
+        CONSOLE.print(f"_generate_dataparser_outputs with {split} data from {self.config.data}")
 
         if self.config.data.suffix == ".json":
             meta = load_from_json(self.config.data)
@@ -286,6 +287,8 @@ class Nerfstudio(DataParser):
                 "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
             },
         )
+        CONSOLE.print("[green] Dataparser outputs returned")
+        print("really returned nerfstudio dataperser results")
         return dataparser_outputs
 
     def _get_fname(self, filepath: PurePath, data_dir: PurePath, downsample_folder_prefix="images_") -> Path:

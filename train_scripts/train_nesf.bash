@@ -12,16 +12,16 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--vis wandb \
 	--steps-per-eval-batch 100 \
     --steps-per-eval-image 500 \
-    --steps-per-save 5000 \
-    --max-num-iterations 500000 \
+    --steps-per-save 10000 \
+    --max-num-iterations 5000000 \
 	--pipeline.datamanager.steps-per-model 1 \
 	--pipeline.datamanager.train-num-images-to-sample-from 4 \
 	--pipeline.datamanager.train-num-times-to-repeat-images 4 \
 	--pipeline.datamanager.eval-num-images-to-sample-from 4 \
 	--pipeline.datamanager.eval-num-times-to-repeat-images 4 \
-	--pipeline.datamanager.train-num-rays-per-batch 20481 \
-	--pipeline.datamanager.eval-num-rays-per-batch 20481 \
-	--pipeline.model.eval-num-rays-per-chunk 20481 \
+	--pipeline.datamanager.train-num-rays-per-batch 40962 \
+	--pipeline.datamanager.eval-num-rays-per-batch 40962 \
+	--pipeline.model.eval-num-rays-per-chunk 40962 \
 	--pipeline.model.mode semantics \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.use-feature-rgb True \
@@ -32,9 +32,9 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.density-feature-dim 8 \
 	--pipeline.model.rot-augmentation True \
 	--pipeline.model.space-partitioning "evenly" \
-	--pipeline.model.feature-transformer-num-layers 6 \
+	--pipeline.model.feature-transformer-num-layers 8 \
 	--pipeline.model.feature-transformer-num-heads 8 \
-	--pipeline.model.feature-transformer-dim-feed-forward 128 \
+	--pipeline.model.feature-transformer-dim-feed-forward 256 \
 	--pipeline.model.feature-transformer-dropout-rate 0.2 \
 	--pipeline.model.feature-transformer-feature-dim 128 \
 	--pipeline.model.decoder-feature-transformer-num-layers 2 \
@@ -43,7 +43,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.decoder-feature-transformer-dropout-rate 0.2 \
 	--pipeline.model.decoder-feature-transformer-feature-dim 32 \
 	--pipeline.model.batching-mode "sliced" \
-	--pipeline.model.batch_size 2048 \
+	--pipeline.model.batch_size 4096 \
 	--pipeline.model.samples_per_ray 10 \
 	nesf-data \
 	--data-config $DATA_CONFIG 
