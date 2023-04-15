@@ -1,6 +1,8 @@
+import time
 from typing import Callable, Union, cast
 
 import torch
+from pointnet.models.pointnet2_sem_seg import get_model
 from rich.console import Console
 from torch import nn
 from torch.nn import Parameter
@@ -12,6 +14,7 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.nerfacto_field import get_normalized_directions
 from nerfstudio.models.base_model import Model
 from nerfstudio.models.nerfacto import NerfactoModel
+from nerfstudio.utils.nesf_utils import visualize_points
 
 CONSOLE = Console(width=120)
 
@@ -80,8 +83,13 @@ class TransformerEncoderModel(torch.nn.Module):
 
         return x_masked, mask, ids_restore
 
-    def forward(self, x, ids_restore=None, src_key_padding_mask=None):
+    def forward(self, x, batch: dict):
         """
+        batch = {
+            ids_restore=None
+            src_key_padding_mask=None
+        }
+
         If pretrain == False:
             the input x is a sequence of shape [N, L, D] will simply be transformed by the transformer encoder.
             it returns x - where x is the encoded input sequence of shape [N, L, feature_dim]
@@ -94,6 +102,9 @@ class TransformerEncoderModel(torch.nn.Module):
             then it assumes it is the decoder. The input will be the masked input and the ids_reorder will be used to reorder the input.
             it retruns x - where x is the encoded input sequence of shape [N, L, feature_dim]
         """
+
+        ids_restore = batch.get("ids_restore", None)
+        src_key_padding_mask = batch.get("src_key_padding_mask", None)
 
         encode = ids_restore is None
         # if encode:
@@ -187,6 +198,22 @@ class FeatureGeneratorTorch(nn.Module):
             self.dir_encoder = SHEncoding()
 
     def forward(self, ray_bundle: RayBundle, model: Model):
+        """
+        Takes a ray bundle filters out non dense points and returns a feature matrix of shape [num_dense_samples, feature_dim]
+        used_samples be 1 if surface sampling is enabled ow used_samples = num_ray_samples
+
+        Input:
+        - ray_bundle: RayBundle [N]
+
+        Output:
+         - out: [1, points, feature_dim]
+         - weights: [N, num_ray_samples, 1]
+         - density_mask: [N, used_samples]
+         - misc:
+            - rgb: [N, used_samples, 3]
+            - density: [N, used_samples, 1]
+            - ray_samples: [N, used_samples]
+        """
         model.eval()
         if isinstance(model, NerfactoModel):
             model = cast(NerfactoModel, model)
@@ -231,8 +258,6 @@ class FeatureGeneratorTorch(nn.Module):
             rgb = field_outputs[FieldHeadNames.RGB][density_mask]
             assert not torch.isnan(rgb).any()
             assert not torch.isinf(rgb).any()
-            print("rgb max: ", rgb.max())
-            print("rgb min: ", rgb.min())
 
             rgb_out = self.rgb_linear(rgb)
 
@@ -279,6 +304,14 @@ class FeatureGeneratorTorch(nn.Module):
             if self.rot_augmentation:
                 positions_normalized = torch.matmul(positions_normalized, rot_matrix)
 
+            print(
+                "Scene ranges from",
+                list(torch.min(positions_normalized, dim=0)[0].cpu().numpy()),
+                "to",
+                list(torch.max(positions_normalized, dim=0)[0].cpu().numpy()),
+            )
+            visualize_points(positions_normalized)
+
             pos_encoding = self.pos_encoder(positions_normalized)
             assert not torch.isnan(pos_encoding).any()
             encodings.append(pos_encoding)
@@ -294,7 +327,6 @@ class FeatureGeneratorTorch(nn.Module):
             encodings.append(dir_encoding)
 
         out = torch.cat(encodings, dim=1).unsqueeze(0)
-
         # out: 1, num_dense, out_dim
         # weights: num_rays, num_samples, 1
         return out, weights, density_mask, misc
@@ -306,3 +338,23 @@ class FeatureGeneratorTorch(nn.Module):
         total_dim += self.dir_encoder.get_out_dim() if self.dir_encoding else 0
         total_dim += self.out_density_dim if self.density else 0
         return total_dim
+
+
+class PointNetWrapper(nn.Module):
+    def __init__(self, output_channels, in_feature_channels):
+        super().__init__()
+        # PointNet takes xyz + features as input
+        self.feature_transformer = get_model(num_classes=output_channels, in_channels=in_feature_channels + 3)
+        self.output_size = output_channels
+
+    def forward(self, x: torch.Tensor, batch: dict):
+        start_time = time.time()
+        # prepend points xyz to points features
+        x = torch.cat((batch["points_xyz"], x), dim=-1)
+        x = x.permute(0, 2, 1)
+        x, l4_points = self.feature_transformer(x)
+        print("PointNetWrapper forward time: ", time.time() - start_time)
+        return x
+
+    def get_out_dim(self) -> int:
+        return self.output_size

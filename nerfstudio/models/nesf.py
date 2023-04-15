@@ -11,7 +11,6 @@ import plotly.graph_objs as go
 import torch
 import torch.nn.functional as F
 from rich.console import Console
-from torch import nn
 from torch.nn import Parameter
 from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchmetrics.classification import MulticlassJaccardIndex
@@ -26,6 +25,7 @@ from nerfstudio.model_components.nesf_components import *
 from nerfstudio.model_components.renderers import RGBRenderer, SemanticRenderer
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import profiler
+from nerfstudio.utils.nesf_utils import *
 from nerfstudio.utils.writer import put_config
 
 lt.monkey_patch()
@@ -56,7 +56,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """whether to use pos as feature or not."""
     use_feature_dir: bool = True
     """whether to use viewing direction as feature or not."""
-    use_feature_density: bool = True
+    use_feature_density: bool = False
     """whether to use the [0-1] normalized density as a feature."""
     density_feature_dim: int = 8
     """the dimension of the density feature."""
@@ -67,6 +67,8 @@ class NeuralSemanticFieldConfig(ModelConfig):
     rot_augmentation: bool = True
     """Whether to use random rotations around z-axis for data augmentation."""
 
+    feature_transformer: Literal["custom", "pointnet"] = "pointnet"
+    """What kind of feature transformer to use. Either a custom transformer or the pointnet transformer."""
     feature_transformer_num_layers: int = 6
     """The number of encoding layers in the feature transformer."""
     feature_transformer_num_heads: int = 8
@@ -103,13 +105,13 @@ class NeuralSemanticFieldConfig(ModelConfig):
     density_cutoff: float = 1e8
     """Large density values might be an issue for training. Hence they can get cut off with this."""
 
-    batching_mode: Literal["sequential", "sliced", "off"] = "sliced"
+    batching_mode: Literal["sequential", "sliced", "off"] = "off"
     """Usually all samples are fed into the transformer at the same time. This could be too much for the model to understand and also too much for VRAM.
     Hence we batch the samples:
      - sequential: we batch the samples by wrapping them sequentially into batches.
      - sliced: Sort points by x coordinate and then slice them into batches.
      - off: no batching is done."""
-    batch_size: int = 2048
+    batch_size: int = 1024
 
     samples_per_ray: int = 10
     """When sampling the underlying nerfs. How many samples should be taken per ray."""
@@ -146,13 +148,13 @@ class NeuralSemanticFieldModel(Model):
         # Losses
         if self.config.mode == "rgb":
             # self.rgb_loss = MSELoss()
-            self.rgb_loss = nn.L1Loss()
+            self.rgb_loss = torch.nn.L1Loss()
         elif self.config.mode == "semantics":
             self.cross_entropy_loss = torch.nn.CrossEntropyLoss(
                 weight=torch.tensor([1.0, 32.0, 32.0, 32.0, 32.0, 32.0]), reduction="mean"
             )
         elif self.config.mode == "density":
-            self.density_loss = nn.L1Loss()
+            self.density_loss = torch.nn.L1Loss()
 
         # Metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -189,22 +191,30 @@ class NeuralSemanticFieldModel(Model):
         activation = (
             torch.nn.ReLU() if self.config.mode == "rgb" or self.config.mode == "density" else torch.nn.Identity()
         )
-        self.feature_transformer = TransformerEncoderModel(
-            input_size=self.feature_model.get_out_dim(),
-            feature_dim=self.config.feature_transformer_feature_dim,
-            num_layers=self.config.feature_transformer_num_layers,
-            num_heads=self.config.feature_transformer_num_heads,
-            dim_feed_forward=self.config.feature_transformer_dim_feed_forward,
-            dropout_rate=self.config.feature_transformer_dropout_rate,
-            activation=activation,
-            pretrain=self.config.pretrain,
-            mask_ratio=self.config.mask_ratio,
-        )
+        if self.config.feature_transformer == "custom":
+            self.feature_transformer = TransformerEncoderModel(
+                input_size=self.feature_model.get_out_dim(),
+                feature_dim=self.config.feature_transformer_feature_dim,
+                num_layers=self.config.feature_transformer_num_layers,
+                num_heads=self.config.feature_transformer_num_heads,
+                dim_feed_forward=self.config.feature_transformer_dim_feed_forward,
+                dropout_rate=self.config.feature_transformer_dropout_rate,
+                activation=activation,
+                pretrain=self.config.pretrain,
+                mask_ratio=self.config.mask_ratio,
+            )
+            feature_transformer_out_size = self.config.feature_transformer_feature_dim
+        else:
+
+            self.feature_transformer = PointNetWrapper(
+                output_channels=128, in_feature_channels=self.feature_model.get_out_dim()
+            )
+            feature_transformer_out_size = self.feature_transformer.get_out_dim()
 
         if self.config.pretrain:
             # TODO add transformer decoder
             self.decoder = TransformerEncoderModel(
-                input_size=self.feature_transformer.get_out_dim(),
+                input_size=feature_transformer_out_size,
                 feature_dim=self.config.decoder_feature_transformer_feature_dim,
                 num_layers=self.config.decoder_feature_transformer_num_layers,
                 num_heads=self.config.decoder_feature_transformer_num_heads,
@@ -223,7 +233,7 @@ class NeuralSemanticFieldModel(Model):
             self.decoder = torch.nn.Identity()
 
             self.head = torch.nn.Sequential(
-                torch.nn.Linear(self.feature_transformer.get_out_dim(), 128),
+                torch.nn.Linear(feature_transformer_out_size, 128),
                 torch.nn.ReLU(),
                 torch.nn.Linear(128, 128),
                 torch.nn.ReLU(),
@@ -295,52 +305,9 @@ class NeuralSemanticFieldModel(Model):
         model: Model = self.get_model(batch)
 
         outs, weights, density_mask, misc = self.feature_model(ray_bundle, model)  # 1, low_dense, 49
-        # CONSOLE.print("dense values: ", (density_mask).sum().item(), "/", density_mask.numel())
-        # print("Outs shape: ", outs.shape)
-        # print("density_mask shape: ", density_mask.shape)
-        # print("density_mask shape: ", density_mask.sum().item())
-        # points = misc["ray_samples"].frustums.get_positions()[density_mask].cpu().numpy()
-        # scatter = go.Scatter3d(
-        #     x=points[:, 0],
-        #     y=points[:, 1],
-        #     z=points[:, 2],
-        #     mode="markers",
-        #     marker=dict(size=1, opacity=0.8),
-        # )
 
-        # # create a layout with axes labels
-        # layout = go.Layout(
-        #     title=f"RGB points: {points.shape}",
-        #     scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-        # )
-        # fig = go.Figure(data=[scatter], layout=layout)
-        # fig.show()
-        # filter points manually
         if DEBUG_FILTER_POINTS:
-            Z_FILTER_VALUE = -2.49
-            Z_FILTER_VALUE = -1.0
-            XY_DISTANCE = 1.0
-            points_dense = misc["ray_samples"].frustums.get_positions()[density_mask]
-            points_dense_mask = (points_dense[:, 2] > Z_FILTER_VALUE) & (
-                torch.norm(points_dense[:, :2], dim=1) <= XY_DISTANCE
-            )
-            points_dense_mask = points_dense_mask.to(density_mask.device)
-            outs = outs[:, points_dense_mask, :]
-
-            points = misc["ray_samples"].frustums.get_positions()
-            points_mask = (points[:, :, 2] > Z_FILTER_VALUE) & (torch.norm(points[:, :, :2], dim=2) <= XY_DISTANCE).to(
-                density_mask.device
-            )
-            density_mask = torch.logical_and(density_mask, points_mask)
-            MAX_COUNT_POINTS = 16384
-            if density_mask.sum() > MAX_COUNT_POINTS:
-                CONSOLE.print("There are too many points, we are limiting to ", MAX_COUNT_POINTS, " points.")
-                # randomly mask points such that we have MAX_COUNT_POINTS points
-                outs = outs[:, :MAX_COUNT_POINTS, :]
-                true_indices = torch.nonzero(density_mask.flatten()).squeeze()
-                true_indices = true_indices[:MAX_COUNT_POINTS]
-                density_mask = torch.zeros_like(density_mask)
-                density_mask.view(-1, 1)[true_indices] = 1
+            outs, density_mask = filter_points(outs, density_mask, misc)
 
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
@@ -349,96 +316,18 @@ class NeuralSemanticFieldModel(Model):
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
+
         if self.config.batching_mode != "off":
             W = outs.shape[1]
-
             if self.config.batching_mode == "sequential":
-                padding = (
-                    self.config.batch_size - (W % self.config.batch_size) if W % self.config.batch_size != 0 else 0
+                # given the features and the density mask batch them up sequentially such that each batch is same size.
+                outs, masking, ids_shuffle, ids_restore, points_pad, rgb_pad = sequential_batching(
+                    outs, density_mask, misc, self.config.batch_size
                 )
-                outs = torch.nn.functional.pad(outs, (0, 0, 0, padding))
-                masking_top = torch.full((W,), False, dtype=torch.bool)
-                masking_bottom = torch.full((padding,), True, dtype=torch.bool)
-                masking = torch.cat((masking_top, masking_bottom)).to(self.device)
-                ids_shuffle = torch.arange(outs.shape[1])
-                ids_restore = ids_shuffle
             elif self.config.batching_mode == "sliced":
-                cell_content = self.config.batch_size
-                columns_per_row = max(int(sqrt(W / cell_content)), 1)
-                row_size = columns_per_row * cell_content
-                row_count = ceil(outs.shape[1] / row_size)
-                print(
-                    "Row count",
-                    row_count,
-                    "columns per row",
-                    columns_per_row,
-                    "Grid size",
-                    row_count * columns_per_row,
-                    "Takes points: ",
-                    row_count * columns_per_row * cell_content,
-                    "At point count: ",
-                    W,
+                outs, masking, ids_shuffle, ids_restore, points_pad, rgb_pad = spatial_sliced_batching(
+                    outs, density_mask, misc, self.config.batch_size
                 )
-                padding = (
-                    (columns_per_row * self.config.batch_size) - (W % (columns_per_row * self.config.batch_size))
-                    if W % (columns_per_row * self.config.batch_size) != 0
-                    else 0
-                )
-                outs = torch.nn.functional.pad(outs, (0, 0, 0, padding))
-                masking_top = torch.full((W,), False, dtype=torch.bool)
-                masking_bottom = torch.full((padding,), True, dtype=torch.bool)
-                masking = torch.cat((masking_top, masking_bottom)).to(self.device)
-
-                points = misc["ray_samples"].frustums.get_positions()[density_mask].view(-1, 3)
-                rand_points = torch.randn((padding, 3), device=points.device)
-                points_padded = torch.cat((points, rand_points))
-                ids_shuffle = torch.argsort(points_padded[:, 0])
-
-                for i in range(row_count):
-                    # for each row seperate into smaller cells by y axis
-                    row_idx = ids_shuffle[i * row_size : (i + 1) * row_size]
-                    points_row_y = points_padded[row_idx, 1]
-                    ids_shuffle[i * row_size : (i + 1) * row_size] = row_idx[torch.argsort(points_row_y)]
-
-                ids_restore = torch.argsort(ids_shuffle)
-                if DEBUG_PLOT_SAMPLES or DEBUG_PLOT_WANDB_SAMPLES:
-                    points_pad = torch.nn.functional.pad(points, (0, 0, 0, padding))
-                    colors_pad = torch.nn.functional.pad(misc["rgb"][density_mask], (0, 0, 0, padding))
-                    for i in range(0, W // self.config.batch_size, 10):
-                        break
-                        points = (
-                            ray_samples.frustums.get_positions()[density_mask].detach().cpu().numpy()[:num_points, :]
-                        )
-                        colors = field_outputs[FieldHeadNames.RGB][density_mask].detach().cpu().numpy()
-
-                        points = (
-                            points_pad[ids_shuffle[self.config.batch_size * i : self.config.batch_size * (i + 1)], :]
-                            .detach()
-                            .cpu()
-                            .numpy()
-                        )
-                        colors = (
-                            colors_pad[ids_shuffle[self.config.batch_size * i : self.config.batch_size * (i + 1)], :]
-                            .detach()
-                            .cpu()
-                            .numpy()
-                        )
-
-                        scatter = go.Scatter3d(
-                            x=points[:, 0],
-                            y=points[:, 1],
-                            z=points[:, 2],
-                            mode="markers",
-                            marker=dict(color=colors, size=1, opacity=0.8),
-                        )
-
-                        # create a layout with axes labels
-                        layout = go.Layout(
-                            title=f"RGB points: {points.shape}",
-                            scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-                        )
-                        fig = go.Figure(data=[scatter], layout=layout)
-                        fig.show()
             else:
                 raise ValueError(f"Unknown batching mode {self.config.batching_mode}")
 
@@ -451,47 +340,37 @@ class NeuralSemanticFieldModel(Model):
             mask = mask.reshape(-1, self.config.batch_size)
 
             if DEBUG_PLOT_SAMPLES:
-                points_pad_reordered = points_pad[ids_shuffle, :].to("cpu")
-                points_pad_reordered = points_pad_reordered.reshape(-1, self.config.batch_size, 3)
-                points = torch.empty((0, 3))
-                colors = torch.empty((0, 3))
-                for i in range(points_pad_reordered.shape[0]):
-                    points = torch.cat((points, points_pad_reordered[i, :, :]))
-                    colors = torch.cat((colors, torch.randn((1, 3)).repeat(self.config.batch_size, 1) * 255))
-                scatter = go.Scatter3d(
-                    x=points[:, 0],
-                    y=points[:, 1],
-                    z=points[:, 2],
-                    mode="markers",
-                    marker=dict(color=colors, size=1, opacity=0.8),
-                )
-
-                # create a layout with axes labels
-                layout = go.Layout(
-                    title=f"RGB points: {points.shape}",
-                    scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
-                )
-                fig = go.Figure(data=[scatter], layout=layout)
-                fig.show()
+                visualize_point_batch(points_pad, ids_shuffle, self.config.batch_size)
 
             if DEBUG_PLOT_WANDB_SAMPLES and random.random() < (1 / 5000):
-                points_pad_reordered = points_pad[ids_shuffle, :].to("cpu")
-                points_pad_reordered = points_pad_reordered.reshape(-1, self.config.batch_size, 3)
-                points = torch.empty((0, 3))
-                colors = torch.empty((0, 3))
-                for i in range(points_pad_reordered.shape[0]):
-                    points = torch.cat((points, points_pad_reordered[i, :, :]))
-                    colors = torch.cat((colors, torch.randn((1, 3)).repeat(self.config.batch_size, 1) * 255))
-                point_cloud = torch.cat((points, colors), dim=1).detach().cpu().numpy()
-                wandb.log({"point_samples": wandb.Object3D(point_cloud)}, step=wandb.run.step)
+                log_points_to_wandb(points_pad, ids_shuffle, self.config.batch_size)
+
+            transform_batch = {
+                "ids_restore": ids_restore,
+                "src_key_padding_mask": mask,
+                "points_xyz": points_pad.reshape(*outs.shape[:-1], 3),
+            }
         else:
-            ids_restore = None
-            mask = None
+
             W = None
+            transform_batch = {
+                "ids_restore": None,
+                "src_key_padding_mask": None,
+                "points_xyz": misc["ray_samples"].frustums.get_positions()[density_mask].reshape(*outs.shape[:-1], 3),
+            }
+            if DEBUG_PLOT_SAMPLES:
+                visualize_points(transform_batch["points_xyz"])
+
+            if DEBUG_PLOT_WANDB_SAMPLES and random.random() < (1 / 5000):
+                log_points_to_wandb(
+                    transform_batch["points_xyz"],
+                    None,
+                    transform_batch["points_xyz"].shape[1],
+                )
 
         outputs = {}
         if self.config.pretrain:
-            x, mask, ids_restore = self.feature_transformer(outs, src_key_padding_mask=mask)
+            x, mask, ids_restore = self.feature_transformer(outs, batch=transform_batch)
             x = self.decoder(x, ids_restore)
             field_outputs = self.head(x)
 
@@ -513,7 +392,7 @@ class NeuralSemanticFieldModel(Model):
 
             # field_outputs = outs
         else:
-            field_encodings = self.feature_transformer(outs, src_key_padding_mask=mask)
+            field_encodings = self.feature_transformer(outs, batch=transform_batch)
             field_encodings = self.decoder(field_encodings)
             field_outputs = self.head(field_encodings)
 
@@ -521,7 +400,7 @@ class NeuralSemanticFieldModel(Model):
         if self.config.batching_mode != "off":
             field_outputs = field_outputs.reshape(1, -1, field_outputs.shape[-1])
             # reshuffle results
-            field_outputs = field_outputs[:, ids_restore, :]
+            field_outputs = field_outputs[:, transform_batch["ids_restore"], :]
 
             # removed padding token
             field_outputs = field_outputs[:, :W, :]
@@ -543,12 +422,13 @@ class NeuralSemanticFieldModel(Model):
                 field_outputs.shape,
                 " density_mask: ",
                 density_mask.shape,
-                "density_mask max: ",
-                density_mask.max(),
+                "density_mask sum: ",
+                density_mask.sum(),
                 " density_mask: ",
                 density_mask,
             )
             semantics[density_mask] = field_outputs  # 1, num_dense_samples, 6
+
             # semantics[~density_mask] = self.learned_low_density_value
             semantics[~density_mask] = torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], device=self.device)
 

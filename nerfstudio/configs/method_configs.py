@@ -328,10 +328,10 @@ method_configs["phototourism"] = TrainerConfig(
 )
 
 
-RAYS_PER_BATCH = 20481
+RAYS_PER_BATCH = 40000
 MAX_NUM_ITERATIONS = 500000
 END_DECAY = 80000
-LR_START = 1e-4
+LR_START = 1e-3
 LR_END = 1e-5
 method_configs["nesf"] = TrainerConfig(
     method_name="nesf",
@@ -348,9 +348,9 @@ method_configs["nesf"] = TrainerConfig(
             train_num_rays_per_batch=RAYS_PER_BATCH,
             eval_num_rays_per_batch=RAYS_PER_BATCH,
             steps_per_model=11,
-            train_num_images_to_sample_from=4,
+            train_num_images_to_sample_from=6,
             train_num_times_to_repeat_images=4,
-            eval_num_images_to_sample_from=4,
+            eval_num_images_to_sample_from=6,
             eval_num_times_to_repeat_images=4,
             camera_optimizer=CameraOptimizerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
@@ -385,7 +385,7 @@ method_configs["nesf"] = TrainerConfig(
             # "scheduler": None,
         },
     },
-    viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7011, quit_on_train_completion=False),
+    viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7014, quit_on_train_completion=False),
     save_only_latest_checkpoint=True,
     vis="viewer",
     logging=LoggingConfig(steps_per_log=10),

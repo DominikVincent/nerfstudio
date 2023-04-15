@@ -22,16 +22,18 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.train-num-rays-per-batch 40962 \
 	--pipeline.datamanager.eval-num-rays-per-batch 40962 \
 	--pipeline.model.eval-num-rays-per-chunk 40962 \
+	--pipeline.model.surface_sampling True \
 	--pipeline.model.mode semantics \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.use-feature-rgb True \
 	--pipeline.model.use-feature-dir True \
 	--pipeline.model.use-feature-pos True \
-	--pipeline.model.use-feature-density True \
+	--pipeline.model.use-feature-density False \
 	--pipeline.model.rgb-feature-dim 16 \
 	--pipeline.model.density-feature-dim 8 \
 	--pipeline.model.rot-augmentation True \
 	--pipeline.model.space-partitioning "evenly" \
+	--pipeline.model.feature_transformer pointnet \
 	--pipeline.model.feature-transformer-num-layers 8 \
 	--pipeline.model.feature-transformer-num-heads 8 \
 	--pipeline.model.feature-transformer-dim-feed-forward 256 \
@@ -42,7 +44,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.decoder-feature-transformer-dim-feed-forward 32 \
 	--pipeline.model.decoder-feature-transformer-dropout-rate 0.2 \
 	--pipeline.model.decoder-feature-transformer-feature-dim 32 \
-	--pipeline.model.batching-mode "sliced" \
+	--pipeline.model.batching-mode "off" \
 	--pipeline.model.batch_size 4096 \
 	--pipeline.model.samples_per_ray 10 \
 	nesf-data \
