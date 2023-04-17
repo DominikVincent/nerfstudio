@@ -54,30 +54,11 @@ class NeuralSemanticFieldConfig(ModelConfig):
     feature_generator_config: FeatureGeneratorTorchConfig = FeatureGeneratorTorchConfig()
     """The feature generating model to use."""
 
-    feature_transformer: Literal["custom", "pointnet"] = "pointnet"
-    """What kind of feature transformer to use. Either a custom transformer or the pointnet transformer."""
-    feature_transformer_num_layers: int = 6
-    """The number of encoding layers in the feature transformer."""
-    feature_transformer_num_heads: int = 8
-    """The number of multihead attention heads in the feature transformer."""
-    feature_transformer_dim_feed_forward: int = 64
-    """The dimension of the feedforward network model in the feature transformer."""
-    feature_transformer_dropout_rate: float = 0.2
-    """The dropout rate in the feature transformer."""
-    feature_transformer_feature_dim: int = 64
-    """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
+    feature_transformer_config: Union[TranformerEncoderModelConfig, PointNetWrapperConfig] = PointNetWrapperConfig()
 
     # In case of pretraining we use a decoder together with a linear unit as prediction head.
-    decoder_feature_transformer_num_layers: int = 2
-    """The number of encoding layers in the feature transformer."""
-    decoder_feature_transformer_num_heads: int = 2
-    """The number of multihead attention heads in the feature transformer."""
-    decoder_feature_transformer_dim_feed_forward: int = 64
-    """The dimension of the feedforward network model in the feature transformer."""
-    decoder_feature_transformer_dropout_rate: float = 0.2
-    """The dropout rate in the feature transformer."""
-    decoder_feature_transformer_feature_dim: int = 64
-    """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
+    feature_decoder_config: Union[TranformerEncoderModelConfig, PointNetWrapperConfig] = TranformerEncoderModelConfig()
+    """If pretraining is used, what should the encoder look like"""
 
     pretrain: bool = False
     """Flag indicating whether the model is in pretraining mode or not."""
@@ -92,7 +73,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
     density_cutoff: float = 1e8
     """Large density values might be an issue for training. Hence they can get cut off with this."""
 
-    batching_mode: Literal["sequential", "sliced", "off"] = "sliced"
+    batching_mode: Literal["sequential", "sliced", "off"] = "off"
     """Usually all samples are fed into the transformer at the same time. This could be too much for the model to understand and also too much for VRAM.
     Hence we batch the samples:
      - sequential: we batch the samples by wrapping them sequentially into batches.
@@ -167,39 +148,18 @@ class NeuralSemanticFieldModel(Model):
         activation = (
             torch.nn.ReLU() if self.config.mode == "rgb" or self.config.mode == "density" else torch.nn.Identity()
         )
-        if self.config.feature_transformer == "custom":
-            self.feature_transformer = TransformerEncoderModel(
-                input_size=self.feature_model.get_out_dim(),
-                feature_dim=self.config.feature_transformer_feature_dim,
-                num_layers=self.config.feature_transformer_num_layers,
-                num_heads=self.config.feature_transformer_num_heads,
-                dim_feed_forward=self.config.feature_transformer_dim_feed_forward,
-                dropout_rate=self.config.feature_transformer_dropout_rate,
-                activation=activation,
-                pretrain=self.config.pretrain,
-                mask_ratio=self.config.mask_ratio,
-            )
-            feature_transformer_out_size = self.config.feature_transformer_feature_dim
+        if isinstance(self.config.feature_transformer_config, TranformerEncoderModelConfig):
+            self.feature_transformer = self.config.feature_transformer_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+        elif isinstance(self.config.feature_transformer_config, PointNetWrapperConfig):
+            self.feature_transformer = self.feature_transformer = self.config.feature_transformer_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
         else:
-
-            self.feature_transformer = PointNetWrapper(
-                output_channels=128, in_feature_channels=self.feature_model.get_out_dim()
-            )
-            feature_transformer_out_size = self.feature_transformer.get_out_dim()
+            raise ValueError(f"Unknown feature transformer config {self.config.feature_transformer_config}")
+            
+        
 
         if self.config.pretrain:
             # TODO add transformer decoder
-            self.decoder = TransformerEncoderModel(
-                input_size=feature_transformer_out_size,
-                feature_dim=self.config.decoder_feature_transformer_feature_dim,
-                num_layers=self.config.decoder_feature_transformer_num_layers,
-                num_heads=self.config.decoder_feature_transformer_num_heads,
-                dim_feed_forward=self.config.decoder_feature_transformer_dim_feed_forward,
-                dropout_rate=self.config.decoder_feature_transformer_dropout_rate,
-                activation=activation,
-                pretrain=self.config.pretrain,
-                mask_ratio=self.config.mask_ratio,
-            )
+            self.decoder = self.config.feature_decoder_config.setup(input_size=self.feature_transformer.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
 
             self.head = torch.nn.Sequential(
                 torch.nn.Linear(self.decoder.get_out_dim(), output_size),
@@ -209,7 +169,7 @@ class NeuralSemanticFieldModel(Model):
             self.decoder = torch.nn.Identity()
 
             self.head = torch.nn.Sequential(
-                torch.nn.Linear(feature_transformer_out_size, 128),
+                torch.nn.Linear(self.feature_transformer.get_out_dim(), 128),
                 torch.nn.ReLU(),
                 torch.nn.Linear(128, 128),
                 torch.nn.ReLU(),
@@ -390,6 +350,7 @@ class NeuralSemanticFieldModel(Model):
             # print the count of the different labels
             # CONSOLE.print("Label counts:", torch.bincount(semantic_labels.flatten()))
         elif self.config.mode == "density":
+            # TODO rewrite this THIS IS BROKEN AND WONT WORK
             rgb = misc["rgb"]
             density = torch.empty((*density_mask.shape, 1), device=self.device)
             density[density_mask] = field_outputs
@@ -397,7 +358,7 @@ class NeuralSemanticFieldModel(Model):
             # make it predict logarithmic density instead
             density = torch.exp(density) - 1
 
-            weights = misc["ray_samples"].get_weights(density)
+            weights = ray_samples.get_weights(density)
 
             rgb = self.renderer_rgb(rgb, weights=weights)
             outputs["rgb"] = rgb

@@ -1,3 +1,4 @@
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Tuple, Type, Union, cast
@@ -17,43 +18,65 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.nerfacto_field import get_normalized_directions
 from nerfstudio.models.base_model import Model
 from nerfstudio.models.nerfacto import NerfactoModel
-from nerfstudio.utils.nesf_utils import visualize_point_batch, visualize_points
+from nerfstudio.utils.nesf_utils import (
+    log_points_to_wandb,
+    visualize_point_batch,
+    visualize_points,
+)
 
 CONSOLE = Console(width=120)
+
+
+@dataclass
+class TranformerEncoderModelConfig(InstantiateConfig):
+    _target: Type = field(default_factory=lambda: TransformerEncoderModel)
+
+    feature_transformer_num_layers: int = 6
+    """The number of encoding layers in the feature transformer."""
+    feature_transformer_num_heads: int = 8
+    """The number of multihead attention heads in the feature transformer."""
+    feature_transformer_dim_feed_forward: int = 64
+    """The dimension of the feedforward network model in the feature transformer."""
+    feature_transformer_dropout_rate: float = 0.2
+    """The dropout rate in the feature transformer."""
+    feature_transformer_feature_dim: int = 64
+    """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
 
 
 class TransformerEncoderModel(torch.nn.Module):
     def __init__(
         self,
+        config: TranformerEncoderModelConfig,
         input_size: int,
-        feature_dim: int = 32,
-        num_layers: int = 6,
-        num_heads: int = 4,
-        dim_feed_forward: int = 64,
-        dropout_rate: float = 0.1,
         activation: Union[Callable, None] = None,
         pretrain: bool = False,
         mask_ratio: float = 0.75,
     ):
         super().__init__()
+        self.config = config
+        self.input_size = input_size
+        self.activation = activation
+        self.pretrain = pretrain
+        self.mask_ratio = mask_ratio
 
         # Feature dim layer
-        self.feature_dim = feature_dim
         self.feature_dim_layer = torch.nn.Sequential(
-            torch.nn.Linear(input_size, feature_dim),
+            torch.nn.Linear(input_size, self.config.feature_transformer_feature_dim),
             torch.nn.ReLU(),
         )
 
         # Define the transformer encoder
         self.encoder_layer = torch.nn.TransformerEncoderLayer(
-            feature_dim, num_heads, dim_feed_forward, dropout_rate, batch_first=True
+            self.config.feature_transformer_feature_dim,
+            self.config.feature_transformer_num_heads,
+            self.config.feature_transformer_dim_feed_forward,
+            self.config.feature_transformer_dropout_rate,
+            batch_first=True,
         )
-        self.transformer_encoder = torch.nn.TransformerEncoder(self.encoder_layer, num_layers)
+        self.transformer_encoder = torch.nn.TransformerEncoder(
+            self.encoder_layer, self.config.feature_transformer_num_layers
+        )
 
-        self.activation = activation
-
-        self.pretrain = pretrain
-        self.mask_ratio = mask_ratio
         if self.pretrain:
             self.mask_token = torch.nn.Parameter(torch.randn(1, 1, input_size), requires_grad=True)
             torch.nn.init.normal_(self.mask_token, std=0.02)
@@ -140,7 +163,7 @@ class TransformerEncoderModel(torch.nn.Module):
         return x
 
     def get_out_dim(self) -> int:
-        return self.feature_dim
+        return self.config.feature_transformer_feature_dim
 
 
 @dataclass
@@ -164,6 +187,12 @@ class FeatureGeneratorTorchConfig(InstantiateConfig):
 
     rot_augmentation: bool = True
     """Should the random rot augmentation around the z axis be used?"""
+    
+    visualize_point_batch: bool = True
+    """Visualize the points of the batch? Useful for debugging"""
+    
+    log_point_batch: bool = False
+    """Log the pointcloud to wandb? Useful for debugging. Happens in chance 1/5000"""
 
 
 class FeatureGeneratorTorch(nn.Module):
@@ -272,8 +301,7 @@ class FeatureGeneratorTorch(nn.Module):
 
         if self.config.use_pos_encoding:
             positions = transform_batch["points_xyz"]
-            visualize_point_batch(positions)
-            
+
             positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
 
             if self.config.rot_augmentation:
@@ -282,10 +310,14 @@ class FeatureGeneratorTorch(nn.Module):
             # normalize positions at 0 mean and 1 std per batch
             mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
             # std = torch.std(positions_normalized, dim=1).unsqueeze(1)
-            
+
             positions_normalized = positions_normalized - mean
+            if self.config.visualize_point_batch:
+                visualize_point_batch(positions_normalized)
 
-
+            if random.random() < (1 / 1):
+                log_points_to_wandb(positions_normalized)
+            
             pos_encoding = self.pos_encoder(positions_normalized)
             assert not torch.isnan(pos_encoding).any()
             encodings.append(pos_encoding)
@@ -314,12 +346,36 @@ class FeatureGeneratorTorch(nn.Module):
         return total_dim
 
 
+@dataclass
+class PointNetWrapperConfig(InstantiateConfig):
+    _target: Type = field(default_factory=lambda: PointNetWrapper)
+
+    out_feature_channels: int = 128
+    """The number of features the model should output"""
+
+
 class PointNetWrapper(nn.Module):
-    def __init__(self, output_channels, in_feature_channels):
+    def __init__(
+        self,
+        config: PointNetWrapperConfig,
+        input_size: int,
+        activation: Union[Callable, None] = None,
+        pretrain: bool = False,
+        mask_ratio: float = 0.75,
+    ):
+        """
+        input_size: the true input feature size, i.e. the number of features per point. Internally the points will be prepended with the featuers.
+        """
         super().__init__()
+        self.config = config
+        self.input_size = input_size
+        self.activation = activation
+        self.pretrain = pretrain
+        self.mask_ratio = mask_ratio
+
         # PointNet takes xyz + features as input
-        self.feature_transformer = get_model(num_classes=output_channels, in_channels=in_feature_channels + 3)
-        self.output_size = output_channels
+        self.feature_transformer = get_model(num_classes=config.out_feature_channels, in_channels=input_size + 3)
+        self.output_size = config.out_feature_channels
 
     def forward(self, x: torch.Tensor, batch: dict):
         start_time = time.time()
@@ -327,7 +383,10 @@ class PointNetWrapper(nn.Module):
         x = torch.cat((batch["points_xyz"], x), dim=-1)
         x = x.permute(0, 2, 1)
         x, l4_points = self.feature_transformer(x)
+        if self.activation is not None:
+            x = self.activation(x)
         CONSOLE.print("PointNetWrapper forward time: ", time.time() - start_time)
+
         return x
 
     def get_out_dim(self) -> int:
@@ -342,7 +401,7 @@ class SceneSamplerConfig(InstantiateConfig):
 
     samples_per_ray: int = 10
     """How many samples per ray to take"""
-    surface_sampling: bool = False
+    surface_sampling: bool = True
     """Sample only the surface or also the volume"""
     density_threshold: float = 0.7
     """The density threshold for which to not use the points for training"""
@@ -431,7 +490,7 @@ class SceneSampler:
     def get_density_mask(self, field_outputs):
         # true for points to keep
         density = field_outputs[FieldHeadNames.DENSITY]  # 64, 48, 1 (rays, samples, 1)
-        density_mask = (density > self.config.density_threshold) # 64, 48
+        density_mask = density > self.config.density_threshold  # 64, 48
         return density_mask.squeeze(-1)
 
     def get_pos_mask(self, ray_samples):
@@ -451,7 +510,7 @@ class SceneSampler:
             num_true_values = true_indices[0].size(0)
 
             # Randomly select k of the true indices
-            selected_indices = torch.randperm(num_true_values)[:self.config.max_points]
+            selected_indices = torch.randperm(num_true_values)[: self.config.max_points]
 
             # Create a new mask with only the selected true values
             new_mask = torch.zeros_like(mask)

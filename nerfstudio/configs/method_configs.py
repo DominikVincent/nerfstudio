@@ -49,7 +49,9 @@ from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.field_components.temporal_distortions import TemporalDistortionKind
 from nerfstudio.model_components.nesf_components import (
     FeatureGeneratorTorchConfig,
+    PointNetWrapperConfig,
     SceneSamplerConfig,
+    TranformerEncoderModelConfig,
 )
 from nerfstudio.models.depth_nerfacto import DepthNerfactoModelConfig
 from nerfstudio.models.instant_ngp import InstantNGPModelConfig
@@ -428,16 +430,20 @@ method_configs["nesf_density"] = TrainerConfig(
             ),
             sampler=SceneSamplerConfig(),
             pretrain=True,
-            feature_transformer_num_layers=4,
-            feature_transformer_num_heads=8,
-            feature_transformer_dim_feed_forward=64,
-            feature_transformer_dropout_rate=0.1,
-            feature_transformer_feature_dim=64,
-            decoder_feature_transformer_num_layers=2,
-            decoder_feature_transformer_num_heads=2,
-            decoder_feature_transformer_dim_feed_forward=32,
-            decoder_feature_transformer_dropout_rate=0.1,
-            decoder_feature_transformer_feature_dim=32,
+            feature_transformer_config=TranformerEncoderModelConfig(
+                feature_transformer_num_layers=4,
+                feature_transformer_num_heads=8,
+                feature_transformer_dim_feed_forward=64,
+                feature_transformer_dropout_rate=0.1,
+                feature_transformer_feature_dim=64,
+            ),
+            feature_decoder_config=TranformerEncoderModelConfig(
+                feature_transformer_num_layers=2,
+                feature_transformer_num_heads=2,
+                feature_transformer_dim_feed_forward=32,
+                feature_transformer_dropout_rate=0.1,
+                feature_transformer_feature_dim=32,
+            ),
             density_prediction="direct",
         ),
     ),

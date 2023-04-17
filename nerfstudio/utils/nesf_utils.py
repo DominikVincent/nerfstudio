@@ -188,7 +188,9 @@ def visualize_points(points: torch.Tensor):
     fig.show()
 
 
-def log_points_to_wandb(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor], batch_size: int):
+def log_points_to_wandb(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor] = None):
+    batch_size = points_pad.shape[1]
+    
     if wandb.run is None:
         CONSOLE.print("[yellow] Wandb run is None but tried to log points. Skipping!")
         return
