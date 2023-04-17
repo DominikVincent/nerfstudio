@@ -6,6 +6,7 @@ import torch
 from rich.console import Console
 
 import wandb
+from nerfstudio.cameras.rays import RaySamples
 
 CONSOLE = Console(width=120)
 
@@ -36,25 +37,31 @@ def filter_points(outs, density_mask, misc: dict):
     return outs, density_mask
 
 
-def sequential_batching(outs: torch.Tensor, density_mask: torch.Tensor, misc: dict, batch_size: int):
-    device = outs.device
-    W = outs.shape[1]
+def sequential_batching(ray_samples: RaySamples, field_outputs: dict, batch_size: int):
+    device = ray_samples.frustums.origins.device
+    W = ray_samples.shape[0]
+
     padding = batch_size - (W % batch_size) if W % batch_size != 0 else 0
-    outs = torch.nn.functional.pad(outs, (0, 0, 0, padding))
+    for key, value in field_outputs.items():
+        field_outputs[key] = torch.nn.functional.pad(value, (0, 0, 0, padding))
+
     masking_top = torch.full((W,), False, dtype=torch.bool)
     masking_bottom = torch.full((padding,), True, dtype=torch.bool)
     masking = torch.cat((masking_top, masking_bottom)).to(device)
-    ids_shuffle = torch.arange(outs.shape[1])
+
+    ids_shuffle = torch.randperm(W + padding)
     ids_restore = ids_shuffle
 
-    points = misc["ray_samples"].frustums.get_positions()[density_mask].view(-1, 3)
+    points = ray_samples.frustums.get_positions()
+    directions = ray_samples.frustums.directions
+
     points_pad = torch.nn.functional.pad(points, (0, 0, 0, padding))
-    colors_pad = torch.nn.functional.pad(misc["rgb"][density_mask], (0, 0, 0, padding))
+    directions_pad = torch.nn.functional.pad(directions, (0, 0, 0, padding))
 
-    return outs, masking, ids_shuffle, ids_restore, points_pad, colors_pad
+    return field_outputs, masking, ids_shuffle, ids_restore, points_pad, directions_pad
 
 
-def spatial_sliced_batching(outs: torch.Tensor, density_mask: torch.Tensor, misc: dict, batch_size: int, device="cpu"):
+def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_size: int):
     """
     Given the features, density, points and batch size, order the spatially in such a away that each batch is a box on an irregualar grid.
     Each cell contains batch size points.
@@ -71,8 +78,8 @@ def spatial_sliced_batching(outs: torch.Tensor, density_mask: torch.Tensor, misc
      - points_pad: [points + padding_of_batch, 3]
      - colors_pad: [points + padding_of_batch, 3]
     """
-    device = outs.device
-    W = outs.shape[1]
+    device = ray_samples.frustums.origins.device
+    W = ray_samples.shape[0]
 
     columns_per_row = max(int(sqrt(W / batch_size)), 1)
     row_size = columns_per_row * batch_size
@@ -97,14 +104,21 @@ def spatial_sliced_batching(outs: torch.Tensor, density_mask: torch.Tensor, misc
         else 0
     )
 
-    outs = torch.nn.functional.pad(outs, (0, 0, 0, padding))
+    for key, value in field_outputs.items():
+        field_outputs[key] = torch.nn.functional.pad(value, (0, 0, 0, padding))
+
     masking_top = torch.full((W,), False, dtype=torch.bool)
     masking_bottom = torch.full((padding,), True, dtype=torch.bool)
     masking = torch.cat((masking_top, masking_bottom)).to(device)
 
-    points = misc["ray_samples"].frustums.get_positions()[density_mask].view(-1, 3)
+    points = ray_samples.frustums.get_positions()
     rand_points = torch.randn((padding, 3), device=points.device)
     points_padded = torch.cat((points, rand_points))
+
+    directions = ray_samples.frustums.directions
+    rand_directions = torch.randn((padding, 3), device=directions.device)
+    directions_padded = torch.cat((directions, rand_directions))
+
     ids_shuffle = torch.argsort(points_padded[:, 0])
 
     for i in range(row_count):
@@ -115,19 +129,27 @@ def spatial_sliced_batching(outs: torch.Tensor, density_mask: torch.Tensor, misc
 
     ids_restore = torch.argsort(ids_shuffle)
 
-    colors_pad = torch.nn.functional.pad(misc["rgb"][density_mask], (0, 0, 0, padding))
-
-    return outs, masking, ids_shuffle, ids_restore, points_padded, colors_pad
+    return field_outputs, masking, ids_shuffle, ids_restore, points_padded, directions_padded
 
 
-def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: torch.Tensor, batch_size: int):
+def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor] = None):
     """ """
-    points_pad_reordered = points_pad[ids_shuffle, :].to("cpu")
-    points_pad_reordered = points_pad_reordered.reshape(-1, batch_size, 3)
+    batch_size = points_pad.shape[1]
+
+    if ids_shuffle is not None:
+        points_pad = points_pad.view(-1, 3)[ids_shuffle, :].to("cpu")
+        points_pad = points_pad.reshape(-1, batch_size, 3)
+    else:
+        points_pad = points_pad.to("cpu")
+
+    # points pad reordered should be [B, batch_size, 3]
+    if len(points_pad.shape) == 2:
+        points_pad = points_pad.unsqueeze(0)
+
     points = torch.empty((0, 3))
     colors = torch.empty((0, 3))
-    for i in range(points_pad_reordered.shape[0]):
-        points = torch.cat((points, points_pad_reordered[i, :, :]))
+    for i in range(points_pad.shape[0]):
+        points = torch.cat((points, points_pad[i, :, :]))
         colors = torch.cat((colors, torch.randn((1, 3)).repeat(batch_size, 1) * 255))
     scatter = go.Scatter3d(
         x=points[:, 0],
@@ -140,7 +162,7 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: torch.Tensor, b
     # create a layout with axes labels
     layout = go.Layout(
         title=f"RGB points: {points.shape}",
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z")),
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"), aspectmode="data"),
     )
     fig = go.Figure(data=[scatter], layout=layout)
     fig.show()

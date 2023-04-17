@@ -47,6 +47,10 @@ from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConf
 from nerfstudio.engine.schedulers import SchedulerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.field_components.temporal_distortions import TemporalDistortionKind
+from nerfstudio.model_components.nesf_components import (
+    FeatureGeneratorTorchConfig,
+    SceneSamplerConfig,
+)
 from nerfstudio.models.depth_nerfacto import DepthNerfactoModelConfig
 from nerfstudio.models.instant_ngp import InstantNGPModelConfig
 from nerfstudio.models.mipnerf import MipNerfModel
@@ -385,7 +389,7 @@ method_configs["nesf"] = TrainerConfig(
             # "scheduler": None,
         },
     },
-    viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7014, quit_on_train_completion=False),
+    viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7017, quit_on_train_completion=False),
     save_only_latest_checkpoint=True,
     vis="viewer",
     logging=LoggingConfig(steps_per_log=10),
@@ -414,12 +418,16 @@ method_configs["nesf_density"] = TrainerConfig(
         model=NeuralSemanticFieldConfig(
             eval_num_rays_per_chunk=256,
             mode="density",
+            feature_generator_config=FeatureGeneratorTorchConfig(
+                use_rgb=True,
+                out_rgb_dim=16,
+                use_density=False,
+                out_density_dim=8,
+                use_dir_encoding=True,
+                use_pos_encoding=True,
+            ),
+            sampler=SceneSamplerConfig(),
             pretrain=True,
-            use_feature_rgb=True,
-            use_feature_dir=True,
-            use_feature_pos=True,
-            use_feature_density=False,
-            rgb_feature_dim=16,
             feature_transformer_num_layers=4,
             feature_transformer_num_heads=8,
             feature_transformer_dim_feed_forward=64,

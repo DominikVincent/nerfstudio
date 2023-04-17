@@ -29,7 +29,7 @@
       "source.organizeImports": true
     }
   },
-  "editor.formatOnSave": true,
+  "editor.formatOnSave": false,
   "python.envFile": "${workspaceFolder}/.env",
   "python.formatting.provider": "black",
   "python.formatting.blackArgs": ["--line-length=120"],

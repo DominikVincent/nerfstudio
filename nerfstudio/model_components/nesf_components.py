@@ -1,20 +1,23 @@
 import time
-from typing import Callable, Union, cast
+from dataclasses import dataclass, field
+from typing import Any, Callable, Tuple, Type, Union, cast
 
 import torch
 from pointnet.models.pointnet2_sem_seg import get_model
 from rich.console import Console
 from torch import nn
 from torch.nn import Parameter
+from torchtyping import TensorType
 
-from nerfstudio.cameras.rays import RayBundle
+from nerfstudio.cameras.rays import RayBundle, RaySamples
+from nerfstudio.configs.base_config import InstantiateConfig
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.field_components.encodings import RFFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.nerfacto_field import get_normalized_directions
 from nerfstudio.models.base_model import Model
 from nerfstudio.models.nerfacto import NerfactoModel
-from nerfstudio.utils.nesf_utils import visualize_points
+from nerfstudio.utils.nesf_utils import visualize_point_batch, visualize_points
 
 CONSOLE = Console(width=120)
 
@@ -140,6 +143,29 @@ class TransformerEncoderModel(torch.nn.Module):
         return self.feature_dim
 
 
+@dataclass
+class FeatureGeneratorTorchConfig(InstantiateConfig):
+    _target: type = field(default_factory=lambda: FeatureGeneratorTorch)
+
+    use_rgb: bool = True
+    """Should the rgb be used as a feature?"""
+    out_rgb_dim: int = 16
+    """The output dimension of the rgb feature"""
+
+    use_density: bool = False
+    """Should the density be used as a feature?"""
+    out_density_dim: int = 8
+
+    use_pos_encoding: bool = True
+    """Should the position encoding be used as a feature?"""
+
+    use_dir_encoding: bool = True
+    """Should the direction encoding be used as a feature?"""
+
+    rot_augmentation: bool = True
+    """Should the random rot augmentation around the z axis be used?"""
+
+
 class FeatureGeneratorTorch(nn.Module):
     """Takes in a batch of b Ray bundles, samples s points along the ray. Then it outputs n x m x f matrix.
     Each row corresponds to one feature of a sampled point of the ray.
@@ -148,56 +174,38 @@ class FeatureGeneratorTorch(nn.Module):
         nn (_type_): _description_
     """
 
-    def __init__(
-        self,
-        aabb,
-        density_threshold: float = 0.5,
-        out_rgb_dim: int = 8,
-        out_density_dim: int = 8,
-        rgb: bool = True,
-        pos_encoding: bool = True,
-        dir_encoding: bool = True,
-        density: bool = True,
-        rot_augmentation: bool = False,
-        samples_per_ray: int = 10,
-        surface_sampling: bool = True,
-    ):
+    def __init__(self, config: FeatureGeneratorTorchConfig, aabb: TensorType[2, 3]):
         super().__init__()
+
+        self.config: FeatureGeneratorTorchConfig = config
+
         self.aabb = Parameter(aabb, requires_grad=False)
-        self.density_threshold = density_threshold
-        self.rgb = rgb
+        self.aabb = cast(TensorType[2, 3], self.aabb)
 
-        self.pos_encoding = pos_encoding
-        self.dir_encoding = dir_encoding
-        self.density = density
+        if self.config.use_rgb:
+            self.rgb_linear = nn.Sequential(
+                nn.Linear(3, 128),
+                nn.ReLU(),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+                nn.Linear(128, self.config.out_rgb_dim),
+            )
 
-        self.out_rgb_dim: int = out_rgb_dim
-        self.out_density_dim: int = out_density_dim
+        if self.config.use_density:
+            self.density_linear = nn.Sequential(
+                nn.Linear(1, 64),
+                nn.ReLU(),
+                nn.Linear(64, 64),
+                nn.ReLU(),
+                nn.Linear(64, self.config.out_density_dim),
+            )
 
-        self.rot_augmentation: bool = rot_augmentation
-        self.samples_per_ray = samples_per_ray
-        self.surface_sampling = surface_sampling
-
-        self.rgb_linear = nn.Sequential(
-            nn.Linear(3, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, self.out_rgb_dim),
-        )
-        self.density_linear = nn.Sequential(
-            nn.Linear(1, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, self.out_density_dim),
-        )
-        if self.pos_encoding:
+        if self.config.use_pos_encoding:
             self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
-        if self.dir_encoding:
+        if self.config.use_dir_encoding:
             self.dir_encoder = SHEncoding()
 
-    def forward(self, ray_bundle: RayBundle, model: Model):
+    def forward(self, field_outputs: dict, transform_batch: dict):
         """
         Takes a ray bundle filters out non dense points and returns a feature matrix of shape [num_dense_samples, feature_dim]
         used_samples be 1 if surface sampling is enabled ow used_samples = num_ray_samples
@@ -214,48 +222,12 @@ class FeatureGeneratorTorch(nn.Module):
             - density: [N, used_samples, 1]
             - ray_samples: [N, used_samples]
         """
-        model.eval()
-        if isinstance(model, NerfactoModel):
-            model = cast(NerfactoModel, model)
-            with torch.no_grad():
-                if model.collider is not None:
-                    ray_bundle = model.collider(ray_bundle)
-
-                model.proposal_sampler.num_nerf_samples_per_ray = self.samples_per_ray
-                ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
-                field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
-                weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
-
-                if self.surface_sampling:
-                    cumulative_weights = torch.cumsum(weights[..., 0], dim=-1)  # [..., num_samples]
-                    split = torch.ones((*weights.shape[:-2], 1), device=weights.device) * 0.5  # [..., 1]
-                    median_index = torch.searchsorted(cumulative_weights, split, side="left")  # [..., 1]
-                    # median_index2 = torch.searchsorted(cumulative_weights, split, side="right")  # [..., 1]
-                    # median_index = torch.cat((median_index, median_index2), dim=-1)
-                    median_index = torch.clamp(median_index, 0, ray_samples.shape[-1] - 1)  # [..., 1]
-
-                    field_outputs[FieldHeadNames.RGB] = field_outputs[FieldHeadNames.RGB][
-                        torch.arange(median_index.shape[0]), median_index.squeeze(), ...
-                    ].unsqueeze(1)
-                    field_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY][
-                        torch.arange(median_index.shape[0]), median_index.squeeze(), :
-                    ].unsqueeze(1)
-                    ray_samples = ray_samples[torch.arange(median_index.shape[0]), median_index.squeeze()].unsqueeze(1)
-        else:
-            raise NotImplementedError("Only NerfactoModel is supported for now")
-
-        misc = {
-            "rgb": field_outputs[FieldHeadNames.RGB],  # 64, 48, 4
-            "density": field_outputs[FieldHeadNames.DENSITY],  # 64, 48, 1
-            "ray_samples": ray_samples,  # 64, 48, ...
-        }
-        density = field_outputs[FieldHeadNames.DENSITY]  # 64, 48, 1 (rays, samples, 1)
-        density_mask = (density > self.density_threshold).squeeze(-1)  # 64, 48
+        device = transform_batch["points_xyz"].device
 
         encodings = []
 
-        if self.rgb:
-            rgb = field_outputs[FieldHeadNames.RGB][density_mask]
+        if self.config.use_rgb:
+            rgb = field_outputs[FieldHeadNames.RGB]
             assert not torch.isnan(rgb).any()
             assert not torch.isinf(rgb).any()
 
@@ -266,8 +238,8 @@ class FeatureGeneratorTorch(nn.Module):
 
             encodings.append(rgb_out)
 
-        if self.density:
-            density = field_outputs[FieldHeadNames.DENSITY][density_mask]
+        if self.config.use_density:
+            density = field_outputs[FieldHeadNames.DENSITY]
             # normalize density between 0 and 1
             density = (density - density.min()) / (density.max() - density.min())
             # assert no nan and no inf values
@@ -285,58 +257,60 @@ class FeatureGeneratorTorch(nn.Module):
             assert not torch.isnan(density).any()
             encodings.append(density)
 
-        if self.rot_augmentation:
+        if self.config.rot_augmentation:
             theta = torch.rand(1) * 2 * torch.pi
 
             # Construct the rotation matrix
             cos_theta = torch.cos(theta)
             sin_theta = torch.sin(theta)
             rot_matrix = torch.tensor(
-                [[cos_theta, -sin_theta, 0], [sin_theta, cos_theta, 0], [0, 0, 1]], device=model.device
+                [[cos_theta, -sin_theta, 0], [sin_theta, cos_theta, 0], [0, 0, 1]],
+                device=device,
             )
         else:
-            rot_matrix = torch.eye(3, device=model.device)
+            rot_matrix = torch.eye(3, device=device)
 
-        if self.pos_encoding:
-            positions = ray_samples.frustums.get_positions()[density_mask]
+        if self.config.use_pos_encoding:
+            positions = transform_batch["points_xyz"]
+            visualize_point_batch(positions)
+            
             positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
 
-            if self.rot_augmentation:
+            if self.config.rot_augmentation:
                 positions_normalized = torch.matmul(positions_normalized, rot_matrix)
 
-            print(
-                "Scene ranges from",
-                list(torch.min(positions_normalized, dim=0)[0].cpu().numpy()),
-                "to",
-                list(torch.max(positions_normalized, dim=0)[0].cpu().numpy()),
-            )
-            visualize_points(positions_normalized)
+            # normalize positions at 0 mean and 1 std per batch
+            mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
+            # std = torch.std(positions_normalized, dim=1).unsqueeze(1)
+            
+            positions_normalized = positions_normalized - mean
+
 
             pos_encoding = self.pos_encoder(positions_normalized)
             assert not torch.isnan(pos_encoding).any()
             encodings.append(pos_encoding)
 
-        if self.dir_encoding:
-            directions = ray_samples.frustums.directions[density_mask]
+        if self.config.use_dir_encoding:
+            directions = transform_batch["directions"]
             directions = get_normalized_directions(directions)
-            if self.rot_augmentation:
+            if self.config.rot_augmentation:
                 directions = torch.matmul(directions, rot_matrix)
             dir_encoding = self.dir_encoder(directions)
 
             assert not torch.isnan(dir_encoding).any()
             encodings.append(dir_encoding)
 
-        out = torch.cat(encodings, dim=1).unsqueeze(0)
+        out = torch.cat(encodings, dim=-1)
         # out: 1, num_dense, out_dim
         # weights: num_rays, num_samples, 1
-        return out, weights, density_mask, misc
+        return out
 
     def get_out_dim(self) -> int:
         total_dim = 0
-        total_dim += self.out_rgb_dim if self.rgb else 0
-        total_dim += self.pos_encoder.get_out_dim() if self.pos_encoding else 0
-        total_dim += self.dir_encoder.get_out_dim() if self.dir_encoding else 0
-        total_dim += self.out_density_dim if self.density else 0
+        total_dim += self.config.out_rgb_dim if self.config.use_rgb else 0
+        total_dim += self.config.out_density_dim if self.config.use_density else 0
+        total_dim += self.pos_encoder.get_out_dim() if self.config.use_pos_encoding else 0
+        total_dim += self.dir_encoder.get_out_dim() if self.config.use_dir_encoding else 0
         return total_dim
 
 
@@ -353,8 +327,145 @@ class PointNetWrapper(nn.Module):
         x = torch.cat((batch["points_xyz"], x), dim=-1)
         x = x.permute(0, 2, 1)
         x, l4_points = self.feature_transformer(x)
-        print("PointNetWrapper forward time: ", time.time() - start_time)
+        CONSOLE.print("PointNetWrapper forward time: ", time.time() - start_time)
         return x
 
     def get_out_dim(self) -> int:
         return self.output_size
+
+
+@dataclass
+class SceneSamplerConfig(InstantiateConfig):
+    """target class to instantiate"""
+
+    _target: Type = field(default_factory=lambda: SceneSampler)
+
+    samples_per_ray: int = 10
+    """How many samples per ray to take"""
+    surface_sampling: bool = False
+    """Sample only the surface or also the volume"""
+    density_threshold: float = 0.7
+    """The density threshold for which to not use the points for training"""
+    filter_points: bool = True
+    """Whether to filter out points for training"""
+    z_value_threshold: float = -1
+    """What is the minimum z value a point has to have"""
+    xy_distance_threshold: float = 1
+    """The maximal distance a point can have to z axis to be considered"""
+    max_points: int = 16384
+    """The maximum number of points to use in one scene. If more are available after filtering, they will be randomly sampled"""
+
+
+class SceneSampler:
+    """_summary_ A class which samples a scene given a ray bundle.
+    It will filter out points/ray_samples and batch up the scene.
+    """
+
+    def __init__(self, config: SceneSamplerConfig):
+        self.config = config
+
+    def sample_scene(self, ray_bundle: RayBundle, model: Model) -> Tuple[RaySamples, torch.Tensor, dict, torch.Tensor]:
+        """_summary_
+        Samples the model for a given ray bundle. Filters and batches points.
+
+        Args:
+            ray_bundle (_type_): A ray bundle. Might be from different cameras.
+            model (_type_): A nerf model. Currently NerfactoModel is supported..
+
+        Returns:
+        - ray_samples (_type_): The ray samples for the scene which should be used.
+        - weights (_type_): The weights for the ray samples which are used.
+        - field_outputs (_type_): The field outputs for the ray samples which are used.
+        - final_mask (_type_): The mask for the ray samples which are used. Is the shape of the original ray_samples.
+
+        Raises:
+            NotImplementedError: _description_
+        """
+        model.eval()
+        if isinstance(model, NerfactoModel):
+            model = cast(NerfactoModel, model)
+            with torch.no_grad():
+                if model.collider is not None:
+                    ray_bundle = model.collider(ray_bundle)
+
+                model.proposal_sampler.num_nerf_samples_per_ray = self.config.samples_per_ray
+                ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
+                field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
+                weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
+
+        else:
+            raise NotImplementedError("Only NerfactoModel is supported for now")
+
+        if self.config.surface_sampling:
+            ray_samples, weights, field_outputs = self.surface_sampling(ray_samples, weights, field_outputs)
+
+        density_mask = self.get_density_mask(field_outputs)
+
+        pos_mask = self.get_pos_mask(ray_samples)
+
+        total_mask = density_mask & pos_mask
+
+        final_mask = self.get_limit_mask(total_mask)
+
+        ray_samples, weights, field_outputs = self.apply_mask(ray_samples, weights, field_outputs, final_mask)
+
+        return ray_samples, weights, field_outputs, final_mask
+
+    def surface_sampling(self, ray_samples, weights, field_outputs):
+        cumulative_weights = torch.cumsum(weights[..., 0], dim=-1)  # [..., num_samples]
+        split = torch.ones((*weights.shape[:-2], 1), device=weights.device) * 0.5  # [..., 1]
+        median_index = torch.searchsorted(cumulative_weights, split, side="left")  # [..., 1]
+        median_index = torch.clamp(median_index, 0, ray_samples.shape[-1] - 1)  # [..., 1]
+
+        field_outputs[FieldHeadNames.RGB] = field_outputs[FieldHeadNames.RGB][
+            torch.arange(median_index.shape[0]), median_index.squeeze(), ...
+        ].unsqueeze(1)
+        field_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY][
+            torch.arange(median_index.shape[0]), median_index.squeeze(), ...
+        ].unsqueeze(1)
+        weights = weights[torch.arange(median_index.shape[0]), median_index.squeeze(), ...].unsqueeze(1)
+        ray_samples = ray_samples[torch.arange(median_index.shape[0]), median_index.squeeze()].unsqueeze(1)
+
+        return ray_samples, weights, field_outputs
+
+    def get_density_mask(self, field_outputs):
+        # true for points to keep
+        density = field_outputs[FieldHeadNames.DENSITY]  # 64, 48, 1 (rays, samples, 1)
+        density_mask = (density > self.config.density_threshold) # 64, 48
+        return density_mask.squeeze(-1)
+
+    def get_pos_mask(self, ray_samples):
+        # true for points to keep
+        points = ray_samples.frustums.get_positions()
+        points_dense_mask = (points[..., 2] > self.config.z_value_threshold) & (
+            torch.norm(points[..., :2], dim=-1) <= self.config.xy_distance_threshold
+        )
+        return points_dense_mask
+
+    def get_limit_mask(self, mask):
+        num_true = int(torch.sum(mask).item())
+
+        # If there are more than k true values, randomly select which ones to keep
+        if num_true > self.config.max_points:
+            true_indices = torch.nonzero(mask, as_tuple=True)
+            num_true_values = true_indices[0].size(0)
+
+            # Randomly select k of the true indices
+            selected_indices = torch.randperm(num_true_values)[:self.config.max_points]
+
+            # Create a new mask with only the selected true values
+            new_mask = torch.zeros_like(mask)
+            new_mask[true_indices[0][selected_indices], true_indices[1][selected_indices]] = 1
+            return new_mask
+        else:
+            return mask
+
+    def apply_mask(self, ray_samples, weights, field_outputs, mask):
+        for k, v in field_outputs.items():
+            field_outputs[k] = v[mask]
+
+        ray_samples = ray_samples[mask]
+        weights = weights[mask]
+
+        # all but density_mask should have the reduced size
+        return ray_samples, weights, field_outputs
