@@ -10,6 +10,7 @@ import numpy as np
 import plotly.graph_objs as go
 import torch
 import torch.nn.functional as F
+import tyro
 from rich.console import Console
 from torch.nn import Parameter
 from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
@@ -54,10 +55,18 @@ class NeuralSemanticFieldConfig(ModelConfig):
     feature_generator_config: FeatureGeneratorTorchConfig = FeatureGeneratorTorchConfig()
     """The feature generating model to use."""
 
-    feature_transformer_config: Union[TranformerEncoderModelConfig, PointNetWrapperConfig] = PointNetWrapperConfig()
+    # feature_transformer_config: AnnotatedTransformerUnion = PointNetWrapperConfig()
+    # dirty workaround because Union of configs didnt work
+    feature_transformer_model: Literal["pointnet", "custom"] = "pointnet"
+    feature_transformer_pointnet_config: PointNetWrapperConfig = PointNetWrapperConfig()
+    feature_transformer_custom_config: TranformerEncoderModelConfig = TranformerEncoderModelConfig()
+    
 
     # In case of pretraining we use a decoder together with a linear unit as prediction head.
-    feature_decoder_config: Union[TranformerEncoderModelConfig, PointNetWrapperConfig] = TranformerEncoderModelConfig()
+    feature_decoder_model: Literal["pointnet", "custom"] = "pointnet"
+    feature_decoder_pointnet_config: PointNetWrapperConfig = PointNetWrapperConfig()
+    feature_decoder_custom_config: TranformerEncoderModelConfig = TranformerEncoderModelConfig()
+    
     """If pretraining is used, what should the encoder look like"""
 
     pretrain: bool = False
@@ -148,18 +157,23 @@ class NeuralSemanticFieldModel(Model):
         activation = (
             torch.nn.ReLU() if self.config.mode == "rgb" or self.config.mode == "density" else torch.nn.Identity()
         )
-        if isinstance(self.config.feature_transformer_config, TranformerEncoderModelConfig):
-            self.feature_transformer = self.config.feature_transformer_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
-        elif isinstance(self.config.feature_transformer_config, PointNetWrapperConfig):
-            self.feature_transformer = self.feature_transformer = self.config.feature_transformer_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+        if self.config.feature_transformer_model == "pointnet":
+            self.feature_transformer = self.config.feature_transformer_pointnet_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+        elif self.config.feature_transformer_model == "custom":
+            self.feature_transformer = self.config.feature_transformer_custom_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
         else:
-            raise ValueError(f"Unknown feature transformer config {self.config.feature_transformer_config}")
+            raise ValueError(f"Unknown feature transformer config {self.config.feature_transformer_model}")
             
         
 
         if self.config.pretrain:
             # TODO add transformer decoder
-            self.decoder = self.config.feature_decoder_config.setup(input_size=self.feature_transformer.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+            if self.config.feature_decoder_model == "pointnet":
+                self.decoder = self.config.feature_decoder_pointnet_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+            elif self.config.feature_decoder_model == "custom":
+                self.decoder = self.config.feature_decoder_custom_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+            else:
+                raise ValueError(f"Unknown feature transformer config {self.config.feature_decoder_model}")
 
             self.head = torch.nn.Sequential(
                 torch.nn.Linear(self.decoder.get_out_dim(), output_size),

@@ -19,13 +19,13 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.train-num-times-to-repeat-images 4 \
 	--pipeline.datamanager.eval-num-images-to-sample-from 4 \
 	--pipeline.datamanager.eval-num-times-to-repeat-images 4 \
-	--pipeline.datamanager.train-num-rays-per-batch 16384 \
-	--pipeline.datamanager.eval-num-rays-per-batch 16384 \
-	--pipeline.model.eval-num-rays-per-chunk 16384 \
+	--pipeline.datamanager.train-num-rays-per-batch 40962 \
+	--pipeline.datamanager.eval-num-rays-per-batch 40962 \
+	--pipeline.model.eval-num-rays-per-chunk 40962 \
 	--pipeline.model.sampler.surface-sampling True \
 	--pipeline.model.sampler.samples-per-ray 10 \
-	--pipeline.model.batching-mode "sliced" \
-	--pipeline.model.batch_size 1536 \
+	--pipeline.model.batching-mode "off" \
+	--pipeline.model.batch_size 4096 \
 	--pipeline.model.mode semantics \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
@@ -36,11 +36,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-generator-config.out-density-dim 8 \
 	--pipeline.model.feature-generator-config.rot-augmentation True \
 	--pipeline.model.space-partitioning "evenly" \
-	--pipeline.model.feature-transformer-model "custom" \
-	--pipeline.model.feature-transformer-custom-config.num-layers 6 \
-	--pipeline.model.feature-transformer-custom-config.num-heads 8 \
-	--pipeline.model.feature-transformer-custom-config.dim-feed-forward 128 \
-	--pipeline.model.feature-transformer-custom-config.dropout-rate 0.2 \
-	--pipeline.model.feature-transformer-custom-config.feature-dim 128 \
+	--pipeline.model.feature-transformer-model "pointnet" \
+	--pipeline.model.feature-transformer-pointnet-config.out_feature_channels 64 \
 	nesf-data \
 	--data-config $DATA_CONFIG 

@@ -31,15 +31,15 @@ CONSOLE = Console(width=120)
 class TranformerEncoderModelConfig(InstantiateConfig):
     _target: Type = field(default_factory=lambda: TransformerEncoderModel)
 
-    feature_transformer_num_layers: int = 6
+    num_layers: int = 6
     """The number of encoding layers in the feature transformer."""
-    feature_transformer_num_heads: int = 8
+    num_heads: int = 8
     """The number of multihead attention heads in the feature transformer."""
-    feature_transformer_dim_feed_forward: int = 64
+    dim_feed_forward: int = 64
     """The dimension of the feedforward network model in the feature transformer."""
-    feature_transformer_dropout_rate: float = 0.2
+    dropout_rate: float = 0.2
     """The dropout rate in the feature transformer."""
-    feature_transformer_feature_dim: int = 64
+    feature_dim: int = 64
     """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
 
 
@@ -61,20 +61,20 @@ class TransformerEncoderModel(torch.nn.Module):
 
         # Feature dim layer
         self.feature_dim_layer = torch.nn.Sequential(
-            torch.nn.Linear(input_size, self.config.feature_transformer_feature_dim),
+            torch.nn.Linear(input_size, self.config.feature_dim),
             torch.nn.ReLU(),
         )
 
         # Define the transformer encoder
         self.encoder_layer = torch.nn.TransformerEncoderLayer(
-            self.config.feature_transformer_feature_dim,
-            self.config.feature_transformer_num_heads,
-            self.config.feature_transformer_dim_feed_forward,
-            self.config.feature_transformer_dropout_rate,
+            self.config.feature_dim,
+            self.config.num_heads,
+            self.config.dim_feed_forward,
+            self.config.dropout_rate,
             batch_first=True,
         )
         self.transformer_encoder = torch.nn.TransformerEncoder(
-            self.encoder_layer, self.config.feature_transformer_num_layers
+            self.encoder_layer, self.config.num_layers
         )
 
         if self.pretrain:
@@ -163,7 +163,7 @@ class TransformerEncoderModel(torch.nn.Module):
         return x
 
     def get_out_dim(self) -> int:
-        return self.config.feature_transformer_feature_dim
+        return self.config.feature_dim
 
 
 @dataclass
@@ -188,10 +188,10 @@ class FeatureGeneratorTorchConfig(InstantiateConfig):
     rot_augmentation: bool = True
     """Should the random rot augmentation around the z axis be used?"""
     
-    visualize_point_batch: bool = True
+    visualize_point_batch: bool = False
     """Visualize the points of the batch? Useful for debugging"""
     
-    log_point_batch: bool = False
+    log_point_batch: bool = True
     """Log the pointcloud to wandb? Useful for debugging. Happens in chance 1/5000"""
 
 
@@ -307,15 +307,15 @@ class FeatureGeneratorTorch(nn.Module):
             if self.config.rot_augmentation:
                 positions_normalized = torch.matmul(positions_normalized, rot_matrix)
 
-            # normalize positions at 0 mean and 1 std per batch
+            # normalize positions at 0 mean and within unit ball
             mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
-            # std = torch.std(positions_normalized, dim=1).unsqueeze(1)
-
-            positions_normalized = positions_normalized - mean
+            dist = torch.norm(positions_normalized - mean, dim=-1).max()
+            
+            positions_normalized = (positions_normalized - mean) / dist
             if self.config.visualize_point_batch:
                 visualize_point_batch(positions_normalized)
 
-            if random.random() < (1 / 1):
+            if self.config.log_point_batch and random.random() < (1 / 5000):
                 log_points_to_wandb(positions_normalized)
             
             pos_encoding = self.pos_encoder(positions_normalized)
