@@ -7,6 +7,7 @@ import torch
 from pointnet.models.pointnet2_sem_seg import get_model
 from rich.console import Console
 from torch import nn
+from torch.distributions import uniform
 from torch.nn import Parameter
 from torchtyping import TensorType
 
@@ -170,19 +171,19 @@ class TransformerEncoderModel(torch.nn.Module):
 class FeatureGeneratorTorchConfig(InstantiateConfig):
     _target: type = field(default_factory=lambda: FeatureGeneratorTorch)
 
-    use_rgb: bool = True
+    use_rgb: bool = False
     """Should the rgb be used as a feature?"""
     out_rgb_dim: int = 16
     """The output dimension of the rgb feature"""
 
-    use_density: bool = False
+    use_density: bool = True
     """Should the density be used as a feature?"""
-    out_density_dim: int = 8
+    out_density_dim: int = 2
 
     use_pos_encoding: bool = True
     """Should the position encoding be used as a feature?"""
 
-    use_dir_encoding: bool = True
+    use_dir_encoding: bool = False
     """Should the direction encoding be used as a feature?"""
 
     rot_augmentation: bool = True
@@ -233,6 +234,8 @@ class FeatureGeneratorTorch(nn.Module):
             self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
         if self.config.use_dir_encoding:
             self.dir_encoder = SHEncoding()
+            
+        self.learned_mask_value = torch.nn.Parameter(torch.randn(self.get_out_dim()))
 
     def forward(self, field_outputs: dict, transform_batch: dict):
         """
@@ -287,45 +290,64 @@ class FeatureGeneratorTorch(nn.Module):
             encodings.append(density)
 
         if self.config.rot_augmentation:
-            theta = torch.rand(1) * 2 * torch.pi
-
-            # Construct the rotation matrix
-            cos_theta = torch.cos(theta)
-            sin_theta = torch.sin(theta)
-            rot_matrix = torch.tensor(
-                [[cos_theta, -sin_theta, 0], [sin_theta, cos_theta, 0], [0, 0, 1]],
-                device=device,
-            )
+            batch_size = transform_batch["points_xyz"].shape[0]
+            angles = uniform.Uniform(0, 2 * torch.pi).sample((batch_size,))
+            
+            # Construct the rotation matrices from the random angles.
+            zeros = torch.zeros_like(angles)
+            ones = torch.ones_like(angles)
+            c = torch.cos(angles)
+            s = torch.sin(angles)
+            rot_matrix = torch.stack([
+                torch.stack([c, -s, zeros], dim=-1),
+                torch.stack([s, c, zeros], dim=-1),
+                torch.stack([zeros, zeros, ones], dim=-1)
+            ], dim=-2).to(transform_batch["points_xyz"].device)
+    
         else:
             rot_matrix = torch.eye(3, device=device)
 
         if self.config.use_pos_encoding:
             positions = transform_batch["points_xyz"]
-
-            positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
-
-            if self.config.rot_augmentation:
-                positions_normalized = torch.matmul(positions_normalized, rot_matrix)
-
-            # normalize positions at 0 mean and within unit ball
-            mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
-            dist = torch.norm(positions_normalized - mean, dim=-1).max()
             
-            positions_normalized = (positions_normalized - mean) / dist
+            
+            
+            if self.config.rot_augmentation:
+                # TODO consider turning that off if not self.training()
+                positions = torch.matmul(positions, rot_matrix)
+                # normalize postions to be within scene bounds  self.aabb: Tensor[2,3]
+                # TODO if needed add the normalizeation for now hardcode clamp
+                positions = torch.clamp(positions, self.aabb[0], self.aabb[1])
+                
+            positions = cast(TensorType, positions)
+            # The positions need to be in [0,1] for the positional encoding
+            positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
+            transform_batch["points_xyz"] = positions_normalized
+            
+            # assert that the points are between 0 and 1
+            assert(torch.all(positions_normalized >= 0.0))
+            assert(torch.all(positions_normalized <= 1.0))
+            
+            # normalize positions at 0 mean and within unit ball
+            # mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
+            # dist = torch.norm(positions_normalized - mean, dim=-1).max()
+            
+            # positions_normalized = (positions_normalized - mean) / dist
             if self.config.visualize_point_batch:
-                visualize_point_batch(positions_normalized)
+                visualize_point_batch(transform_batch["points_xyz"])
 
             if self.config.log_point_batch and random.random() < (1 / 5000):
-                log_points_to_wandb(positions_normalized)
+                log_points_to_wandb(transform_batch["points_xyz"])
             
             pos_encoding = self.pos_encoder(positions_normalized)
             assert not torch.isnan(pos_encoding).any()
-            encodings.append(pos_encoding)
+            # encodings.append(pos_encoding)
 
         if self.config.use_dir_encoding:
             directions = transform_batch["directions"]
             directions = get_normalized_directions(directions)
             if self.config.rot_augmentation:
+                # TODO consider turning that off if not self.training()
                 directions = torch.matmul(directions, rot_matrix)
             dir_encoding = self.dir_encoder(directions)
 
@@ -335,13 +357,16 @@ class FeatureGeneratorTorch(nn.Module):
         out = torch.cat(encodings, dim=-1)
         # out: 1, num_dense, out_dim
         # weights: num_rays, num_samples, 1
-        return out
+        
+        if "src_key_padding_mask" in transform_batch and transform_batch["src_key_padding_mask"] is not None:
+            out[transform_batch["src_key_padding_mask"]] = self.learned_mask_value
+        return out, transform_batch
 
     def get_out_dim(self) -> int:
         total_dim = 0
         total_dim += self.config.out_rgb_dim if self.config.use_rgb else 0
         total_dim += self.config.out_density_dim if self.config.use_density else 0
-        total_dim += self.pos_encoder.get_out_dim() if self.config.use_pos_encoding else 0
+        # total_dim += self.pos_encoder.get_out_dim() if self.config.use_pos_encoding else 0
         total_dim += self.dir_encoder.get_out_dim() if self.config.use_dir_encoding else 0
         return total_dim
 
@@ -352,7 +377,9 @@ class PointNetWrapperConfig(InstantiateConfig):
 
     out_feature_channels: int = 128
     """The number of features the model should output"""
-
+    
+    radius_scale: float = 0.25
+    """Pointnet has radiuses tuned for the unit sphere. This scales the radiuses to the scene size as our radius are at most sqrt(2) and in practice even smaller"""
 
 class PointNetWrapper(nn.Module):
     def __init__(
@@ -374,7 +401,7 @@ class PointNetWrapper(nn.Module):
         self.mask_ratio = mask_ratio
 
         # PointNet takes xyz + features as input
-        self.feature_transformer = get_model(num_classes=config.out_feature_channels, in_channels=input_size + 3)
+        self.feature_transformer = get_model(num_classes=config.out_feature_channels, in_channels=input_size + 3, radius_factor=self.config.radius_scale)
         self.output_size = config.out_feature_channels
 
     def forward(self, x: torch.Tensor, batch: dict):
@@ -411,7 +438,7 @@ class SceneSamplerConfig(InstantiateConfig):
     """What is the minimum z value a point has to have"""
     xy_distance_threshold: float = 1
     """The maximal distance a point can have to z axis to be considered"""
-    max_points: int = 16384
+    max_points: int = 2<<17
     """The maximum number of points to use in one scene. If more are available after filtering, they will be randomly sampled"""
 
 
@@ -432,10 +459,10 @@ class SceneSampler:
             model (_type_): A nerf model. Currently NerfactoModel is supported..
 
         Returns:
-        - ray_samples (_type_): The ray samples for the scene which should be used.
-        - weights (_type_): The weights for the ray samples which are used.
-        - field_outputs (_type_): The field outputs for the ray samples which are used.
-        - final_mask (_type_): The mask for the ray samples which are used. Is the shape of the original ray_samples.
+        - ray_samples (_type_): The ray samples for the scene which should be used. (N_dense)
+        - weights (_type_): The weights for the ray samples which are used. (N_dense x 1)
+        - field_outputs (_type_): The field outputs for the ray samples which are used. (N_dense x dim)
+        - final_mask (_type_): The mask for the ray samples which are used. Is the shape of the original ray_samples. (N_rays x N_samples)
 
         Raises:
             NotImplementedError: _description_
@@ -470,7 +497,19 @@ class SceneSampler:
 
         return ray_samples, weights, field_outputs, final_mask
 
-    def surface_sampling(self, ray_samples, weights, field_outputs):
+    def surface_sampling(self, ray_samples: RaySamples, weights: TensorType["N_rays", "N_samples", 1], field_outputs: dict) :
+        """Samples only surface samples along the ray
+
+        Args:
+            ray_samples (_type_): N_rays x N_samples
+            weights (_type_): N_rays x N_samples x 1
+            field_outputs (_type_): N_rays x N_samples x dim
+
+        Returns:
+            ray_samples (_type_): N_rays x 1
+            weights (_type_): N_rays x 1 x 1
+            field_outputs (_type_): N_rays x 1 x dim
+        """
         cumulative_weights = torch.cumsum(weights[..., 0], dim=-1)  # [..., num_samples]
         split = torch.ones((*weights.shape[:-2], 1), device=weights.device) * 0.5  # [..., 1]
         median_index = torch.searchsorted(cumulative_weights, split, side="left")  # [..., 1]
@@ -487,13 +526,14 @@ class SceneSampler:
 
         return ray_samples, weights, field_outputs
 
-    def get_density_mask(self, field_outputs):
+    def get_density_mask(self, field_outputs) -> TensorType["N_rays", "N_samples"]:
         # true for points to keep
         density = field_outputs[FieldHeadNames.DENSITY]  # 64, 48, 1 (rays, samples, 1)
         density_mask = density > self.config.density_threshold  # 64, 48
-        return density_mask.squeeze(-1)
+        density_mask = density_mask.squeeze(-1)
+        return density_mask
 
-    def get_pos_mask(self, ray_samples):
+    def get_pos_mask(self, ray_samples) -> TensorType["N_rays", "N_samples"]:
         # true for points to keep
         points = ray_samples.frustums.get_positions()
         points_dense_mask = (points[..., 2] > self.config.z_value_threshold) & (
@@ -519,7 +559,14 @@ class SceneSampler:
         else:
             return mask
 
-    def apply_mask(self, ray_samples, weights, field_outputs, mask):
+    def apply_mask(self, ray_samples: RaySamples, weights: TensorType["N_rays", "N_samples", 1], field_outputs, mask: TensorType["N_rays", "N_samples"]) \
+    -> Tuple[RaySamples, TensorType["N_dense", 1], dict]:
+        """Applies the mask to the ray samples and field outputs
+
+        Returns:
+            ray_samples: Will be N_dense
+            field_outputs: Will be N_dense x dim
+        """
         for k, v in field_outputs.items():
             field_outputs[k] = v[mask]
 

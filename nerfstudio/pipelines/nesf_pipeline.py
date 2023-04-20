@@ -126,6 +126,19 @@ class NesfPipeline(Pipeline):
         """
         self.datamanager.models_to_cpu(step)
         ray_bundle, batch = self.datamanager.next_train(step)
+        
+        self.eval()
+        CONSOLE.print("### NesfPipeline: eval mode set.")
+        transformer_model_outputs_e = self.model(ray_bundle, batch)
+
+        metrics_dict_e = self.model.get_metrics_dict(transformer_model_outputs_e, batch)
+
+        # No need for camera opt param groups as the nerfs are assumed to be fixed already.
+
+        loss_dict_e = self.model.get_loss_dict(transformer_model_outputs_e, batch, metrics_dict_e)
+        self.train()
+        CONSOLE.print("### NesfPipeline: train mode set.")
+        
         transformer_model_outputs = self.model(ray_bundle, batch)
 
         metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch)

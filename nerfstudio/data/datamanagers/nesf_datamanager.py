@@ -304,7 +304,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         ray_bundle = self.eval_ray_generators[model_idx](ray_indices)
         return ray_bundle, batch
 
-    def next_eval_image(self, step: int) -> Tuple[int, RayBundle, Dict]:
+    def next_eval_image(self, step: int) -> Tuple[int, int, RayBundle, Dict]:
         model_idx = self.eval_image_model % self.eval_datasets.set_count()
         self.eval_image_model += 1
 

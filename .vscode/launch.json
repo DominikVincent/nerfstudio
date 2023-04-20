@@ -107,12 +107,12 @@
       "request": "launch",
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/tests/try_nesf.py",
       // "args": "viewer",
-      "args": "wandb",
-      // "args": "tensorboard",
+      // "args": "wandb",
+      "args": "tensorboard",
       "console": "integratedTerminal",
       "env": {
         "CUDA_LAUNCH_BLOCKING": "1",
-        "CUDA_VISIBLE_DEVICES": "0"
+        "CUDA_VISIBLE_DEVICES": "2"
       },
       "justMyCode": false
   },

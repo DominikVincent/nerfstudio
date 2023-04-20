@@ -4,37 +4,12 @@ from typing import Union
 import plotly.graph_objs as go
 import torch
 from rich.console import Console
+from torchtyping import TensorType
 
 import wandb
 from nerfstudio.cameras.rays import RaySamples
 
 CONSOLE = Console(width=120)
-
-
-def filter_points(outs, density_mask, misc: dict):
-    Z_FILTER_VALUE = -2.49
-    Z_FILTER_VALUE = -1.0
-    XY_DISTANCE = 1.0
-    points_dense = misc["ray_samples"].frustums.get_positions()[density_mask]
-    points_dense_mask = (points_dense[:, 2] > Z_FILTER_VALUE) & (torch.norm(points_dense[:, :2], dim=1) <= XY_DISTANCE)
-    points_dense_mask = points_dense_mask.to(density_mask.device)
-    outs = outs[:, points_dense_mask, :]
-
-    points = misc["ray_samples"].frustums.get_positions()
-    points_mask = (points[:, :, 2] > Z_FILTER_VALUE) & (torch.norm(points[:, :, :2], dim=2) <= XY_DISTANCE).to(
-        density_mask.device
-    )
-    density_mask = torch.logical_and(density_mask, points_mask)
-    MAX_COUNT_POINTS = 16384
-    if density_mask.sum() > MAX_COUNT_POINTS:
-        CONSOLE.print("There are too many points, we are limiting to ", MAX_COUNT_POINTS, " points.")
-        # randomly mask points such that we have MAX_COUNT_POINTS points
-        outs = outs[:, :MAX_COUNT_POINTS, :]
-        true_indices = torch.nonzero(density_mask.flatten()).squeeze()
-        true_indices = true_indices[:MAX_COUNT_POINTS]
-        density_mask = torch.zeros_like(density_mask)
-        density_mask.view(-1, 1)[true_indices] = 1
-    return outs, density_mask
 
 
 def sequential_batching(ray_samples: RaySamples, field_outputs: dict, batch_size: int):
@@ -49,7 +24,7 @@ def sequential_batching(ray_samples: RaySamples, field_outputs: dict, batch_size
     masking_bottom = torch.full((padding,), True, dtype=torch.bool)
     masking = torch.cat((masking_top, masking_bottom)).to(device)
 
-    ids_shuffle = torch.randperm(W + padding)
+    ids_shuffle = torch.arange(W + padding)
     ids_restore = ids_shuffle
 
     points = ray_samples.frustums.get_positions()
@@ -60,8 +35,31 @@ def sequential_batching(ray_samples: RaySamples, field_outputs: dict, batch_size
 
     return field_outputs, masking, ids_shuffle, ids_restore, points_pad, directions_pad
 
+def random_batching(ray_samples: RaySamples, field_outputs: dict, batch_size: int):
+    device = ray_samples.frustums.origins.device
+    W = ray_samples.shape[0]
 
-def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_size: int):
+    padding = batch_size - (W % batch_size) if W % batch_size != 0 else 0
+    for key, value in field_outputs.items():
+        field_outputs[key] = torch.nn.functional.pad(value, (0, 0, 0, padding))
+
+    masking_top = torch.full((W,), False, dtype=torch.bool)
+    masking_bottom = torch.full((padding,), True, dtype=torch.bool)
+    masking = torch.cat((masking_top, masking_bottom)).to(device)
+
+    ids_shuffle = torch.randperm(W + padding)
+    ids_restore = torch.argsort(ids_shuffle)
+
+    points = ray_samples.frustums.get_positions()
+    directions = ray_samples.frustums.directions
+
+    points_pad = torch.nn.functional.pad(points, (0, 0, 0, padding))
+    directions_pad = torch.nn.functional.pad(directions, (0, 0, 0, padding))
+
+    return field_outputs, masking, ids_shuffle, ids_restore, points_pad, directions_pad
+
+
+def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_size: int, scene_bound: TensorType[2,3]):
     """
     Given the features, density, points and batch size, order the spatially in such a away that each batch is a box on an irregualar grid.
     Each cell contains batch size points.
@@ -112,7 +110,11 @@ def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_
     masking = torch.cat((masking_top, masking_bottom)).to(device)
 
     points = ray_samples.frustums.get_positions()
-    rand_points = torch.randn((padding, 3), device=points.device)
+    scene_bound = scene_bound.to(points.device)
+    rand_points = torch.rand((padding, 3), device=points.device) * (scene_bound[1] - scene_bound[0]) + scene_bound[0]
+    # scale points to be closer to the scene bounds center by factor of 0.6
+    rand_points = (rand_points - scene_bound.mean(0)) * 0.6 + scene_bound.mean(0)
+    
     points_padded = torch.cat((points, rand_points))
 
     directions = ray_samples.frustums.directions

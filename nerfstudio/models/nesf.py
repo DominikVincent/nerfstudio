@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import lovely_tensors as lt
 import numpy as np
+import plotly.express as px
 import plotly.graph_objs as go
 import torch
 import torch.nn.functional as F
@@ -32,10 +33,6 @@ from nerfstudio.utils.writer import put_config
 lt.monkey_patch()
 
 CONSOLE = Console(width=120)
-DEBUG_PLOT_SAMPLES = False
-DEBUG_PLOT_WANDB_SAMPLES = True
-DEBUG_FILTER_POINTS = True
-
 
 @dataclass
 class NeuralSemanticFieldConfig(ModelConfig):
@@ -57,7 +54,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
 
     # feature_transformer_config: AnnotatedTransformerUnion = PointNetWrapperConfig()
     # dirty workaround because Union of configs didnt work
-    feature_transformer_model: Literal["pointnet", "custom"] = "pointnet"
+    feature_transformer_model: Literal["pointnet", "custom"] = "custom"
     feature_transformer_pointnet_config: PointNetWrapperConfig = PointNetWrapperConfig()
     feature_transformer_custom_config: TranformerEncoderModelConfig = TranformerEncoderModelConfig()
     
@@ -82,16 +79,20 @@ class NeuralSemanticFieldConfig(ModelConfig):
     density_cutoff: float = 1e8
     """Large density values might be an issue for training. Hence they can get cut off with this."""
 
-    batching_mode: Literal["sequential", "sliced", "off"] = "off"
+    batching_mode: Literal["sequential", "random", "sliced", "off"] = "random"
     """Usually all samples are fed into the transformer at the same time. This could be too much for the model to understand and also too much for VRAM.
     Hence we batch the samples:
      - sequential: we batch the samples by wrapping them sequentially into batches.
+     - random: take random permuatations of points for batching.
      - sliced: Sort points by x coordinate and then slice them into batches.
      - off: no batching is done."""
-    batch_size: int = 1024
+    batch_size: int = 1536
 
     samples_per_ray: int = 10
     """When sampling the underlying nerfs. How many samples should be taken per ray."""
+    
+    debug_show_image: bool = False
+    """Show the generated image."""
 
 
 def get_wandb_histogram(tensor):
@@ -191,6 +192,7 @@ class NeuralSemanticFieldModel(Model):
                 torch.nn.ReLU(),
             )
         self.learned_low_density_value = torch.nn.Parameter(torch.randn(output_size))
+        self.learned_pad_token = torch.nn.Parameter(torch.randn(self.feature_model.get_out_dim()))
 
         # Renderer
         if self.config.mode == "rgb":
@@ -234,7 +236,7 @@ class NeuralSemanticFieldModel(Model):
         param_groups = {
             "feature_network": list(self.feature_model.parameters()),
             "feature_transformer": list(self.feature_transformer.parameters()),
-            "learned_low_density_params": [self.learned_low_density_value],
+            "learned_low_density_params": [self.learned_low_density_value, self.learned_pad_token],
             "decoder": list(self.decoder.parameters()),
             "head": list(self.head.parameters()),
         }
@@ -255,23 +257,13 @@ class NeuralSemanticFieldModel(Model):
         model: Model = self.get_model(batch)
 
         # all but density mask are by filtered dimension
-        ray_samples, weights, field_outputs, density_mask = self.scene_sampler.sample_scene(ray_bundle, model)
+        ray_samples, weights, field_outputs_raw, density_mask = self.scene_sampler.sample_scene(ray_bundle, model)
 
         # potentially batch up and infuse field outputs with random points
-        field_outputs, transform_batch = self.batching(ray_samples, field_outputs)
-
-        if DEBUG_PLOT_SAMPLES:
-            visualize_points(transform_batch["points_xyz"])
-
-            if DEBUG_PLOT_WANDB_SAMPLES and random.random() < (1 / 5000):
-                log_points_to_wandb(
-                    transform_batch["points_xyz"],
-                    None,
-                    transform_batch["points_xyz"].shape[1],
-                )
-
+        field_outputs_raw, transform_batch = self.batching(ray_samples, field_outputs_raw)
+        
         # TODO return the transformed points
-        outs = self.feature_model(field_outputs, transform_batch)  # 1, low_dense, 49
+        outs, transform_batch = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
 
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
@@ -308,15 +300,18 @@ class NeuralSemanticFieldModel(Model):
             field_encodings = self.feature_transformer(outs, batch=transform_batch)
             field_encodings = self.decoder(field_encodings)
             field_outputs = self.head(field_encodings)
+            
 
         # unbatch the data
         if self.config.batching_mode != "off":
             field_outputs = field_outputs.reshape(1, -1, field_outputs.shape[-1])
+            
             # reshuffle results
             field_outputs = field_outputs[:, transform_batch["ids_restore"], :]
-
+            
             # removed padding token
             field_outputs = field_outputs[:, : ray_samples.shape[0], :]
+            
 
         if self.config.mode == "rgb":
             # debug rgb
@@ -349,20 +344,21 @@ class NeuralSemanticFieldModel(Model):
 
             # semantics[~density_mask] = self.learned_low_density_value
             semantics[~density_mask] = torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], device=self.device)
-            weights_all[~density_mask] = 0.0
+            weights_all[~density_mask] = 0.01
 
             semantics = self.renderer_semantics(semantics, weights=weights_all)
             outputs["semantics"] = semantics  # N, num_classes
 
             # semantics colormaps
             semantic_labels = torch.argmax(torch.nn.functional.softmax(semantics, dim=-1), dim=-1)
+            
             self.semantics.colors = self.semantics.colors.to(self.device)
             semantics_colormap = self.semantics.colors[semantic_labels].to(self.device)
             outputs["semantics_colormap"] = semantics_colormap
             outputs["rgb"] = semantics_colormap
 
             # print the count of the different labels
-            # CONSOLE.print("Label counts:", torch.bincount(semantic_labels.flatten()))
+            CONSOLE.print("Label counts:", torch.bincount(semantic_labels.flatten()))
         elif self.config.mode == "density":
             # TODO rewrite this THIS IS BROKEN AND WONT WORK
             rgb = misc["rgb"]
@@ -429,7 +425,8 @@ class NeuralSemanticFieldModel(Model):
             semantics = batch["semantics"][..., 0].long().to(self.device)
             with torch.no_grad():
                 # mIoU
-                metrics_dict["miou_" + str(batch["model_idx"])] = self.miou(outputs["semantics"], semantics)
+                metrics_dict["miou"] = self.miou(outputs["semantics"], semantics)
+                metrics_dict["miou_" + str(batch["model_idx"])] = metrics_dict["miou"]
         elif self.config.mode == "density":
             image = batch["image"].to(self.device)
 
@@ -566,6 +563,8 @@ class NeuralSemanticFieldModel(Model):
             rgb = outputs["rgb"]
             combined_rgb = torch.cat([image, rgb], dim=1)
             images_dict["img"] = combined_rgb
+            
+
 
             # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
             image = torch.moveaxis(image, -1, 0)[None, ...]
@@ -603,6 +602,11 @@ class NeuralSemanticFieldModel(Model):
             miou = self.miou(outs, gt)
             metrics_dict = {"miou": float(miou.item())}
 
+        # plotly show image
+        if self.config.debug_show_image:
+            fig = px.imshow(images_dict["img"].cpu().numpy())
+            fig.show()
+                
         return metrics_dict, images_dict
 
     def set_model(self, model: Model):
@@ -637,15 +641,18 @@ class NeuralSemanticFieldModel(Model):
 
     def batching(self, ray_samples: RaySamples, field_outputs: dict):
         if self.config.batching_mode != "off":
-            W = ray_samples.shape[0]
             if self.config.batching_mode == "sequential":
                 # given the features and the density mask batch them up sequentially such that each batch is same size.
                 field_outputs, masking, ids_shuffle, ids_restore, points_pad, directions_pad = sequential_batching(
                     ray_samples, field_outputs, self.config.batch_size
                 )
+            elif self.config.batching_mode == "random":
+                field_outputs, masking, ids_shuffle, ids_restore, points_pad, directions_pad = random_batching(
+                    ray_samples, field_outputs, self.config.batch_size
+                )
             elif self.config.batching_mode == "sliced":
                 field_outputs, masking, ids_shuffle, ids_restore, points_pad, directions_pad = spatial_sliced_batching(
-                    ray_samples, field_outputs, self.config.batch_size
+                    ray_samples, field_outputs, self.config.batch_size, self.scene_box.aabb
                 )
             else:
                 raise ValueError(f"Unknown batching mode {self.config.batching_mode}")

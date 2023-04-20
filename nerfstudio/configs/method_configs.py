@@ -334,16 +334,17 @@ method_configs["phototourism"] = TrainerConfig(
 )
 
 
+# RAYS_PER_BATCH = 122886
 RAYS_PER_BATCH = 40000
 MAX_NUM_ITERATIONS = 500000
 END_DECAY = 80000
-LR_START = 1e-3
+LR_START = 1e-4
 LR_END = 1e-5
 method_configs["nesf"] = TrainerConfig(
     method_name="nesf",
     experiment_name="/tmp",
     steps_per_eval_batch=100,
-    steps_per_eval_image=500,
+    steps_per_eval_image=100,
     steps_per_save=5000,
     max_num_iterations=MAX_NUM_ITERATIONS,
     steps_per_eval_all_images=1000000,

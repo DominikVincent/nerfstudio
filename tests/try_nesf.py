@@ -26,6 +26,8 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
     trainConfig.set_timestamp()
     trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data
+    # trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
+    trainConfig.pipeline.model.debug_show_image = True
     trainConfig.save_config()
 
     trainer = trainConfig.setup(local_rank=0, world_size=1)
