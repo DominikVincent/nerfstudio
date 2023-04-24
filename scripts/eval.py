@@ -35,7 +35,7 @@ class ComputePSNR:
     def main(self) -> None:
         """Main function."""
         writer.setup_event_writer(self.use_wandb, is_tensorboard_enabled=False, log_dir="logs")
-        if self.name != "":
+        if self.name != "" and self.use_wandb and wandb.run is not None:
             wandb.run.name = self.name
             wandb.run.tags = ["test", "eval"]
         writer.setup_local_writer(

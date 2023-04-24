@@ -81,7 +81,7 @@ def ns_eval(config_path, output_path, name, use_slurm=False, partition="QRTX5000
         BASH_SCRIPT = f"""\
 #!/bin/bash
 source /data/vision/polina/projects/wmh/dhollidt/conda/bin/activate
-conda activate nerfstudio3
+conda activate nerfstudio2
 
 {command}
 """

@@ -208,4 +208,4 @@ class Model(nn.Module):
             loaded_state: dictionary of pre-trained model states
         """
         state = {key.replace("module.", ""): value for key, value in loaded_state["model"].items()}
-        self.load_state_dict(state)  # type: ignore
+        self.load_state_dict(state, strict=False)  # type: ignore

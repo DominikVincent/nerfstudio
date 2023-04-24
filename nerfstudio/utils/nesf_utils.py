@@ -135,7 +135,7 @@ def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_
 
 
 def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor] = None):
-    """ """
+    CONSOLE.print("Visualizing point batch")
     batch_size = points_pad.shape[1]
 
     if ids_shuffle is not None:

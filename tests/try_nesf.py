@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import torch_geometric
+
 from nerfstudio.configs.method_configs import method_configs
 
 

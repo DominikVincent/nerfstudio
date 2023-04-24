@@ -335,7 +335,7 @@ method_configs["phototourism"] = TrainerConfig(
 
 
 # RAYS_PER_BATCH = 122886
-RAYS_PER_BATCH = 40000
+RAYS_PER_BATCH = 65536
 MAX_NUM_ITERATIONS = 500000
 END_DECAY = 80000
 LR_START = 1e-4
@@ -354,7 +354,7 @@ method_configs["nesf"] = TrainerConfig(
             dataparser=NesfDataParserConfig(),
             train_num_rays_per_batch=RAYS_PER_BATCH,
             eval_num_rays_per_batch=RAYS_PER_BATCH,
-            steps_per_model=11,
+            steps_per_model=1,
             train_num_images_to_sample_from=6,
             train_num_times_to_repeat_images=4,
             eval_num_images_to_sample_from=6,

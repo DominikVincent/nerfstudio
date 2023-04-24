@@ -1,20 +1,23 @@
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Tuple, Type, Union, cast
+from typing import Any, Callable, List, Tuple, Type, Union, cast
 
 import torch
+import torch_points_kernels as tp
+from model.stratified_transformer import Stratified
 from pointnet.models.pointnet2_sem_seg import get_model
 from rich.console import Console
 from torch import nn
 from torch.distributions import uniform
 from torch.nn import Parameter
 from torchtyping import TensorType
+from typing_extensions import Literal
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.configs.base_config import InstantiateConfig
 from nerfstudio.data.scene_box import SceneBox
-from nerfstudio.field_components.encodings import RFFEncoding, SHEncoding
+from nerfstudio.field_components.encodings import NeRFEncoding, RFFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.nerfacto_field import get_normalized_directions
 from nerfstudio.models.base_model import Model
@@ -24,6 +27,8 @@ from nerfstudio.utils.nesf_utils import (
     visualize_point_batch,
     visualize_points,
 )
+
+torch.autograd.set_detect_anomaly(True)
 
 CONSOLE = Console(width=120)
 
@@ -74,9 +79,7 @@ class TransformerEncoderModel(torch.nn.Module):
             self.config.dropout_rate,
             batch_first=True,
         )
-        self.transformer_encoder = torch.nn.TransformerEncoder(
-            self.encoder_layer, self.config.num_layers
-        )
+        self.transformer_encoder = torch.nn.TransformerEncoder(self.encoder_layer, self.config.num_layers)
 
         if self.pretrain:
             self.mask_token = torch.nn.Parameter(torch.randn(1, 1, input_size), requires_grad=True)
@@ -185,15 +188,21 @@ class FeatureGeneratorTorchConfig(InstantiateConfig):
 
     use_dir_encoding: bool = False
     """Should the direction encoding be used as a feature?"""
+    
+    use_normal_encoding: bool = True
+    """Should the direction encoding be used as a feature?"""
 
     rot_augmentation: bool = True
     """Should the random rot augmentation around the z axis be used?"""
-    
+
     visualize_point_batch: bool = False
     """Visualize the points of the batch? Useful for debugging"""
-    
+
     log_point_batch: bool = True
     """Log the pointcloud to wandb? Useful for debugging. Happens in chance 1/5000"""
+
+    pos_encoder: Literal["sin", "rff"] = "sin"
+    """what kind of feature encoded should be used?"""
 
 
 class FeatureGeneratorTorch(nn.Module):
@@ -231,10 +240,17 @@ class FeatureGeneratorTorch(nn.Module):
             )
 
         if self.config.use_pos_encoding:
-            self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
-        if self.config.use_dir_encoding:
+            if self.config.pos_encoder == "sin":
+                self.pos_encoder = NeRFEncoding(
+                    in_dim=3, num_frequencies=8, min_freq_exp=0.0, max_freq_exp=8.0, include_input=True
+                )
+            elif self.config.pos_encoder == "rff":
+                self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
+            else:
+                raise ValueError(f"Unknown pos encoder {self.config.pos_encoder}")
+        if self.config.use_dir_encoding or self.config.use_normal_encoding:
             self.dir_encoder = SHEncoding()
-            
+
         self.learned_mask_value = torch.nn.Parameter(torch.randn(self.get_out_dim()))
 
     def forward(self, field_outputs: dict, transform_batch: dict):
@@ -292,56 +308,71 @@ class FeatureGeneratorTorch(nn.Module):
         if self.config.rot_augmentation:
             batch_size = transform_batch["points_xyz"].shape[0]
             angles = uniform.Uniform(0, 2 * torch.pi).sample((batch_size,))
-            
+
             # Construct the rotation matrices from the random angles.
             zeros = torch.zeros_like(angles)
             ones = torch.ones_like(angles)
             c = torch.cos(angles)
             s = torch.sin(angles)
-            rot_matrix = torch.stack([
-                torch.stack([c, -s, zeros], dim=-1),
-                torch.stack([s, c, zeros], dim=-1),
-                torch.stack([zeros, zeros, ones], dim=-1)
-            ], dim=-2).to(transform_batch["points_xyz"].device)
-    
+            rot_matrix = torch.stack(
+                [
+                    torch.stack([c, -s, zeros], dim=-1),
+                    torch.stack([s, c, zeros], dim=-1),
+                    torch.stack([zeros, zeros, ones], dim=-1),
+                ],
+                dim=-2,
+            ).to(transform_batch["points_xyz"].device)
+
         else:
             rot_matrix = torch.eye(3, device=device)
 
-        if self.config.use_pos_encoding:
-            positions = transform_batch["points_xyz"]
+        positions = transform_batch["points_xyz"]
+
+        if self.config.rot_augmentation:
+            # TODO consider turning that off if not self.training()
+            positions = torch.matmul(positions, rot_matrix)
+            # normalize postions to be within scene bounds  self.aabb: Tensor[2,3]
+            # TODO if needed add the normalizeation for now hardcode clamp
+            positions = torch.clamp(positions, self.aabb[0], self.aabb[1])
             
-            
-            
+
+        positions = cast(TensorType, positions)
+        # The positions need to be in [0,1] for the positional encoding
+        positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
+        transform_batch["points_xyz"] = positions_normalized
+
+        # assert that the points are between 0 and 1
+        assert torch.all(positions_normalized >= 0.0)
+        assert torch.all(positions_normalized <= 1.0)
+
+        # normalize positions at 0 mean and within unit ball
+        # mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
+        # dist = torch.norm(positions_normalized - mean, dim=-1).max()
+
+        # positions_normalized = (positions_normalized - mean) / dist
+        if self.config.visualize_point_batch:
+            visualize_point_batch(transform_batch["points_xyz"])
+            a = input("press enter to continue...")
+
+        if self.config.log_point_batch and random.random() < (1 / 5000):
+            log_points_to_wandb(transform_batch["points_xyz"])
+        
+        assert ((not self.config.use_normal_encoding) or FieldHeadNames.NORMALS in field_outputs)
+        if FieldHeadNames.NORMALS in field_outputs:
+            normals = field_outputs[FieldHeadNames.NORMALS]
             if self.config.rot_augmentation:
                 # TODO consider turning that off if not self.training()
-                positions = torch.matmul(positions, rot_matrix)
-                # normalize postions to be within scene bounds  self.aabb: Tensor[2,3]
-                # TODO if needed add the normalizeation for now hardcode clamp
-                positions = torch.clamp(positions, self.aabb[0], self.aabb[1])
-                
-            positions = cast(TensorType, positions)
-            # The positions need to be in [0,1] for the positional encoding
-            positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
-            transform_batch["points_xyz"] = positions_normalized
-            
-            # assert that the points are between 0 and 1
-            assert(torch.all(positions_normalized >= 0.0))
-            assert(torch.all(positions_normalized <= 1.0))
-            
-            # normalize positions at 0 mean and within unit ball
-            # mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
-            # dist = torch.norm(positions_normalized - mean, dim=-1).max()
-            
-            # positions_normalized = (positions_normalized - mean) / dist
-            if self.config.visualize_point_batch:
-                visualize_point_batch(transform_batch["points_xyz"])
+                normals = torch.matmul(normals, rot_matrix)
+            normals = get_normalized_directions(normals)
+            transform_batch["normals"] = normals
+            if self.config.use_normal_encoding:
+                encodings.append(self.dir_encoder(normals))
 
-            if self.config.log_point_batch and random.random() < (1 / 5000):
-                log_points_to_wandb(transform_batch["points_xyz"])
-            
+        if self.config.use_pos_encoding:
             pos_encoding = self.pos_encoder(positions_normalized)
             assert not torch.isnan(pos_encoding).any()
-            # encodings.append(pos_encoding)
+            encodings.append(pos_encoding)
+            
 
         if self.config.use_dir_encoding:
             directions = transform_batch["directions"]
@@ -357,7 +388,7 @@ class FeatureGeneratorTorch(nn.Module):
         out = torch.cat(encodings, dim=-1)
         # out: 1, num_dense, out_dim
         # weights: num_rays, num_samples, 1
-        
+
         if "src_key_padding_mask" in transform_batch and transform_batch["src_key_padding_mask"] is not None:
             out[transform_batch["src_key_padding_mask"]] = self.learned_mask_value
         return out, transform_batch
@@ -366,58 +397,10 @@ class FeatureGeneratorTorch(nn.Module):
         total_dim = 0
         total_dim += self.config.out_rgb_dim if self.config.use_rgb else 0
         total_dim += self.config.out_density_dim if self.config.use_density else 0
-        # total_dim += self.pos_encoder.get_out_dim() if self.config.use_pos_encoding else 0
+        total_dim += self.pos_encoder.get_out_dim() if self.config.use_pos_encoding else 0
         total_dim += self.dir_encoder.get_out_dim() if self.config.use_dir_encoding else 0
+        total_dim += self.dir_encoder.get_out_dim() if self.config.use_normal_encoding else 0
         return total_dim
-
-
-@dataclass
-class PointNetWrapperConfig(InstantiateConfig):
-    _target: Type = field(default_factory=lambda: PointNetWrapper)
-
-    out_feature_channels: int = 128
-    """The number of features the model should output"""
-    
-    radius_scale: float = 0.25
-    """Pointnet has radiuses tuned for the unit sphere. This scales the radiuses to the scene size as our radius are at most sqrt(2) and in practice even smaller"""
-
-class PointNetWrapper(nn.Module):
-    def __init__(
-        self,
-        config: PointNetWrapperConfig,
-        input_size: int,
-        activation: Union[Callable, None] = None,
-        pretrain: bool = False,
-        mask_ratio: float = 0.75,
-    ):
-        """
-        input_size: the true input feature size, i.e. the number of features per point. Internally the points will be prepended with the featuers.
-        """
-        super().__init__()
-        self.config = config
-        self.input_size = input_size
-        self.activation = activation
-        self.pretrain = pretrain
-        self.mask_ratio = mask_ratio
-
-        # PointNet takes xyz + features as input
-        self.feature_transformer = get_model(num_classes=config.out_feature_channels, in_channels=input_size + 3, radius_factor=self.config.radius_scale)
-        self.output_size = config.out_feature_channels
-
-    def forward(self, x: torch.Tensor, batch: dict):
-        start_time = time.time()
-        # prepend points xyz to points features
-        x = torch.cat((batch["points_xyz"], x), dim=-1)
-        x = x.permute(0, 2, 1)
-        x, l4_points = self.feature_transformer(x)
-        if self.activation is not None:
-            x = self.activation(x)
-        CONSOLE.print("PointNetWrapper forward time: ", time.time() - start_time)
-
-        return x
-
-    def get_out_dim(self) -> int:
-        return self.output_size
 
 
 @dataclass
@@ -438,8 +421,10 @@ class SceneSamplerConfig(InstantiateConfig):
     """What is the minimum z value a point has to have"""
     xy_distance_threshold: float = 1
     """The maximal distance a point can have to z axis to be considered"""
-    max_points: int = 2<<17
+    max_points: int = 2 << 17
     """The maximum number of points to use in one scene. If more are available after filtering, they will be randomly sampled"""
+    get_normals: bool = True
+    """Get normals for the samples"""
 
 
 class SceneSampler:
@@ -476,7 +461,7 @@ class SceneSampler:
 
                 model.proposal_sampler.num_nerf_samples_per_ray = self.config.samples_per_ray
                 ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
-                field_outputs = model.field(ray_samples, compute_normals=model.config.predict_normals)
+                field_outputs = model.field(ray_samples, compute_normals=self.config.get_normals)
                 weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
 
         else:
@@ -497,7 +482,9 @@ class SceneSampler:
 
         return ray_samples, weights, field_outputs, final_mask
 
-    def surface_sampling(self, ray_samples: RaySamples, weights: TensorType["N_rays", "N_samples", 1], field_outputs: dict) :
+    def surface_sampling(
+        self, ray_samples: RaySamples, weights: TensorType["N_rays", "N_samples", 1], field_outputs: dict
+    ):
         """Samples only surface samples along the ray
 
         Args:
@@ -515,12 +502,15 @@ class SceneSampler:
         median_index = torch.searchsorted(cumulative_weights, split, side="left")  # [..., 1]
         median_index = torch.clamp(median_index, 0, ray_samples.shape[-1] - 1)  # [..., 1]
 
-        field_outputs[FieldHeadNames.RGB] = field_outputs[FieldHeadNames.RGB][
-            torch.arange(median_index.shape[0]), median_index.squeeze(), ...
-        ].unsqueeze(1)
-        field_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY][
-            torch.arange(median_index.shape[0]), median_index.squeeze(), ...
-        ].unsqueeze(1)
+        for k, v in field_outputs.items():
+            field_outputs[k] = v[torch.arange(median_index.shape[0]), median_index.squeeze(), ...].unsqueeze(1)
+
+        # field_outputs[FieldHeadNames.RGB] = field_outputs[FieldHeadNames.RGB][
+        #     torch.arange(median_index.shape[0]), median_index.squeeze(), ...
+        # ].unsqueeze(1)
+        # field_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY][
+        #     torch.arange(median_index.shape[0]), median_index.squeeze(), ...
+        # ].unsqueeze(1)
         weights = weights[torch.arange(median_index.shape[0]), median_index.squeeze(), ...].unsqueeze(1)
         ray_samples = ray_samples[torch.arange(median_index.shape[0]), median_index.squeeze()].unsqueeze(1)
 
@@ -559,8 +549,13 @@ class SceneSampler:
         else:
             return mask
 
-    def apply_mask(self, ray_samples: RaySamples, weights: TensorType["N_rays", "N_samples", 1], field_outputs, mask: TensorType["N_rays", "N_samples"]) \
-    -> Tuple[RaySamples, TensorType["N_dense", 1], dict]:
+    def apply_mask(
+        self,
+        ray_samples: RaySamples,
+        weights: TensorType["N_rays", "N_samples", 1],
+        field_outputs,
+        mask: TensorType["N_rays", "N_samples"],
+    ) -> Tuple[RaySamples, TensorType["N_dense", 1], dict]:
         """Applies the mask to the ray samples and field outputs
 
         Returns:
@@ -575,3 +570,171 @@ class SceneSampler:
 
         # all but density_mask should have the reduced size
         return ray_samples, weights, field_outputs
+
+
+@dataclass
+class PointNetWrapperConfig(InstantiateConfig):
+    _target: Type = field(default_factory=lambda: PointNetWrapper)
+
+    out_feature_channels: int = 128
+    """The number of features the model should output"""
+
+    radius_scale: float = 0.25
+    """Pointnet has radiuses tuned for the unit sphere. This scales the radiuses to the scene size as our radius are at most sqrt(2) and in practice even smaller"""
+
+
+class PointNetWrapper(nn.Module):
+    def __init__(
+        self,
+        config: PointNetWrapperConfig,
+        input_size: int,
+        activation: Union[Callable, None] = None,
+        pretrain: bool = False,
+        mask_ratio: float = 0.75,
+    ):
+        """
+        input_size: the true input feature size, i.e. the number of features per point. Internally the points will be prepended with the featuers.
+        """
+        super().__init__()
+        self.config = config
+        self.input_size = input_size
+        self.activation = activation
+        self.pretrain = pretrain
+        self.mask_ratio = mask_ratio
+
+        # PointNet takes xyz + features as input
+        self.feature_transformer = get_model(
+            num_classes=config.out_feature_channels, in_channels=input_size + 3, radius_factor=self.config.radius_scale
+        )
+        self.output_size = config.out_feature_channels
+
+    def forward(self, x: torch.Tensor, batch: dict):
+        start_time = time.time()
+        # prepend points xyz to points features
+        x = torch.cat((batch["points_xyz"], x), dim=-1)
+        x = x.permute(0, 2, 1)
+        x, l4_points = self.feature_transformer(x)
+        if self.activation is not None:
+            x = self.activation(x)
+        CONSOLE.print("PointNetWrapper forward time: ", time.time() - start_time)
+
+        return x
+
+    def get_out_dim(self) -> int:
+        return self.output_size
+
+
+@dataclass
+class StratifiedTransformerWrapperConfig(InstantiateConfig):
+    _target: Type = field(default_factory=lambda: StratifiedTransformerWrapper)
+
+    # refer to the stratfied transformer for these parameters
+    downsample_scale: int = 8
+    depths: List[int] = field(default_factory=lambda: [2, 2, 6, 2])
+    channels: List[int] = field(default_factory=lambda: [48, 96, 192, 384])
+    num_heads: List[int] = field(default_factory=lambda: [3, 6, 12, 24])
+    window_size: int = 3  # TODO check what this does/means
+    up_k: int = 3  # is not used
+    k: int = 16  # kernel size in the maxpooling downsample layer
+    grid_size: float = 0.04 / 10  # TODO check what this does/means
+    quant_size: float = 0.01 / 10# TODO check what this does/means
+    rel_query: bool = True  # use a lookuptable for the relative position
+    rel_key: bool = True
+    rel_value: bool = True
+    drop_path_rate: float = 0.3
+    concat_xyz: bool = True
+    ratio: float = 0.25 # number of centroids in the downsampled point cloud
+    sigma: float = 1  # influence distance of a single point (sigma * grid_size)
+    num_layers: int = 4
+    stem_transformer: bool = True  # what kind of model to use. one is downsampling ones isnt
+    patch_size: int = 1  # TODO check what this does/means
+    max_num_neighbors: int = 34
+
+
+class StratifiedTransformerWrapper(nn.Module):
+    def __init__(
+        self,
+        config: StratifiedTransformerWrapperConfig,
+        input_size: int,
+        activation: Union[Callable, None] = None,
+        pretrain: bool = False,
+        mask_ratio: float = 0.75,
+    ):
+        super().__init__()
+        self.config = config
+        self.activation = activation
+
+        patch_size = self.config.grid_size * self.config.patch_size
+        window_sizes = [patch_size * self.config.window_size * (2**i) for i in range(self.config.num_layers)]
+        grid_sizes = [patch_size * (2**i) for i in range(self.config.num_layers)]
+        quant_sizes = [self.config.quant_size * (2**i) for i in range(self.config.num_layers)]
+        print("patch_size", patch_size)
+        print("window_sizes", window_sizes)
+        print("grid_sizes", grid_sizes)
+        print("quant_sizes", quant_sizes)
+
+        self.model = Stratified(
+            self.config.downsample_scale,
+            self.config.depths,
+            self.config.channels,
+            self.config.num_heads,
+            window_sizes,
+            self.config.up_k,
+            grid_sizes,
+            quant_sizes,
+            rel_query=self.config.rel_query,
+            rel_key=self.config.rel_key,
+            rel_value=self.config.rel_value,
+            drop_path_rate=self.config.drop_path_rate,
+            concat_xyz=self.config.concat_xyz,
+            num_classes=-1,
+            ratio=self.config.ratio,
+            k=self.config.k,
+            prev_grid_size=self.config.grid_size,
+            sigma=1.0,
+            num_layers=self.config.num_layers,
+            stem_transformer=self.config.stem_transformer,
+            features_in_dim=input_size,
+        )
+
+    def forward(self, x: torch.Tensor, batch: dict):
+        start_time = time.time()
+
+        def batch_for_stratified_point_transformer(points, features):
+            batch_size = points.shape[0]
+            seq_len = points.shape[1]
+            points = points.reshape(-1, 3)
+            features = features.reshape(-1, features.shape[-1])
+            offsets = torch.arange(seq_len, (1 + batch_size) * seq_len, seq_len, dtype=torch.int32)
+
+            offset_ = offsets.clone()
+            offset_[1:] = offset_[1:] - offset_[:-1]
+            batch = torch.cat([torch.tensor([ii] * o) for ii, o in enumerate(offset_)], 0).long()
+            batch = batch.to(x.device)
+
+            sigma = 1.0
+            radius = 2.5 * self.config.grid_size * sigma
+            neighbor_idx = tp.ball_query(
+                radius, self.config.max_num_neighbors, points, points, mode="partial_dense", batch_x=batch, batch_y=batch
+            )[0]
+
+            # get the neighbour_idx
+            offsets = offsets.to(points.device)
+            return points, features, offsets, batch, neighbor_idx
+
+        points, features, offsets, batch_s, neighbour_idx = batch_for_stratified_point_transformer(
+            points=batch["points_xyz"], features=x
+        )
+        print("Coordinates range", torch.min(points, dim=0)[0].p, torch.max(points, dim=0)[0].p, torch.max(points, dim=0)[0].norm().item())
+        print("points shape", points, "features shape", features.shape, "x shape", x.shape)
+        print("dtypes", features.dtype, points.dtype, offsets.dtype, batch_s.dtype, neighbour_idx.dtype)
+        x = self.model(features, points, offsets, batch_s, neighbour_idx)
+
+        if self.activation is not None:
+            x = self.activation(x)
+
+        CONSOLE.print("StratifiedTransformerWrapper forward time: ", time.time() - start_time)
+        return x
+
+    def get_out_dim(self) -> int:
+        return self.config.channels[0]

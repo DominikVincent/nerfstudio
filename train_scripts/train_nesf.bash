@@ -12,27 +12,28 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--vis wandb \
 	--steps-per-eval-batch 100 \
     --steps-per-eval-image 500 \
-    --steps-per-save 10000 \
+    --steps-per-save 5000 \
     --max-num-iterations 5000000 \
 	--pipeline.datamanager.steps-per-model 1 \
 	--pipeline.datamanager.train-num-images-to-sample-from 4 \
 	--pipeline.datamanager.train-num-times-to-repeat-images 4 \
 	--pipeline.datamanager.eval-num-images-to-sample-from 4 \
 	--pipeline.datamanager.eval-num-times-to-repeat-images 4 \
-	--pipeline.datamanager.train-num-rays-per-batch 16384 \
-	--pipeline.datamanager.eval-num-rays-per-batch 16384 \
-	--pipeline.model.eval-num-rays-per-chunk 16384 \
+	--pipeline.datamanager.train-num-rays-per-batch 20481 \
+	--pipeline.datamanager.eval-num-rays-per-batch 20481 \
+	--pipeline.model.eval-num-rays-per-chunk 20481 \
 	--pipeline.model.sampler.surface-sampling True \
 	--pipeline.model.sampler.samples-per-ray 10 \
 	--pipeline.model.batching-mode "sliced" \
-	--pipeline.model.batch_size 1536 \
+	--pipeline.model.batch_size 2048 \
 	--pipeline.model.mode semantics \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
 	--pipeline.model.feature-generator-config.use-dir-encoding True \
 	--pipeline.model.feature-generator-config.use-pos-encoding True \
-	--pipeline.model.feature-generator-config.use-density False \
+	--pipeline.model.feature-generator-config.use-density True \
 	--pipeline.model.feature-generator-config.out-rgb-dim 16 \
+	--pipeline.model.feature-generator-config.pos-encoder "sin" \
 	--pipeline.model.feature-generator-config.out-density-dim 8 \
 	--pipeline.model.feature-generator-config.rot-augmentation True \
 	--pipeline.model.space-partitioning "evenly" \

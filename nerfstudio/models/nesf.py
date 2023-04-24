@@ -34,6 +34,7 @@ lt.monkey_patch()
 
 CONSOLE = Console(width=120)
 
+
 @dataclass
 class NeuralSemanticFieldConfig(ModelConfig):
     """Config for Neural Semantic field"""
@@ -54,16 +55,17 @@ class NeuralSemanticFieldConfig(ModelConfig):
 
     # feature_transformer_config: AnnotatedTransformerUnion = PointNetWrapperConfig()
     # dirty workaround because Union of configs didnt work
-    feature_transformer_model: Literal["pointnet", "custom"] = "custom"
+    feature_transformer_model: Literal["pointnet", "custom", "stratified"] = "stratified"
     feature_transformer_pointnet_config: PointNetWrapperConfig = PointNetWrapperConfig()
     feature_transformer_custom_config: TranformerEncoderModelConfig = TranformerEncoderModelConfig()
-    
+    feature_transformer_stratified_config: StratifiedTransformerWrapperConfig = StratifiedTransformerWrapperConfig()
 
     # In case of pretraining we use a decoder together with a linear unit as prediction head.
-    feature_decoder_model: Literal["pointnet", "custom"] = "pointnet"
+    feature_decoder_model: Literal["pointnet", "custom", "stratified"] = "pointnet"
     feature_decoder_pointnet_config: PointNetWrapperConfig = PointNetWrapperConfig()
     feature_decoder_custom_config: TranformerEncoderModelConfig = TranformerEncoderModelConfig()
-    
+    feature_decoder_stratified_config: StratifiedTransformerWrapperConfig = StratifiedTransformerWrapperConfig()
+
     """If pretraining is used, what should the encoder look like"""
 
     pretrain: bool = False
@@ -79,7 +81,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
     density_cutoff: float = 1e8
     """Large density values might be an issue for training. Hence they can get cut off with this."""
 
-    batching_mode: Literal["sequential", "random", "sliced", "off"] = "random"
+    batching_mode: Literal["sequential", "random", "sliced", "off"] = "off"
     """Usually all samples are fed into the transformer at the same time. This could be too much for the model to understand and also too much for VRAM.
     Hence we batch the samples:
      - sequential: we batch the samples by wrapping them sequentially into batches.
@@ -90,7 +92,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
 
     samples_per_ray: int = 10
     """When sampling the underlying nerfs. How many samples should be taken per ray."""
-    
+
     debug_show_image: bool = False
     """Show the generated image."""
 
@@ -106,7 +108,6 @@ def get_wandb_histogram(tensor):
 
 
 class NeuralSemanticFieldModel(Model):
-
     config: NeuralSemanticFieldConfig
 
     def __init__(self, config: NeuralSemanticFieldConfig, metadata: Dict, **kwargs) -> None:
@@ -159,20 +160,52 @@ class NeuralSemanticFieldModel(Model):
             torch.nn.ReLU() if self.config.mode == "rgb" or self.config.mode == "density" else torch.nn.Identity()
         )
         if self.config.feature_transformer_model == "pointnet":
-            self.feature_transformer = self.config.feature_transformer_pointnet_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+            self.feature_transformer = self.config.feature_transformer_pointnet_config.setup(
+                input_size=self.feature_model.get_out_dim(),
+                activation=activation,
+                pretrain=self.config.pretrain,
+                mask_ratio=self.config.mask_ratio,
+            )
         elif self.config.feature_transformer_model == "custom":
-            self.feature_transformer = self.config.feature_transformer_custom_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+            self.feature_transformer = self.config.feature_transformer_custom_config.setup(
+                input_size=self.feature_model.get_out_dim(),
+                activation=activation,
+                pretrain=self.config.pretrain,
+                mask_ratio=self.config.mask_ratio,
+            )
+        elif self.config.feature_transformer_model == "stratified":
+            self.feature_transformer = self.config.feature_transformer_stratified_config.setup(
+                input_size=self.feature_model.get_out_dim(),
+                activation=activation,
+                pretrain=self.config.pretrain,
+                mask_ratio=self.config.mask_ratio,
+            )
         else:
             raise ValueError(f"Unknown feature transformer config {self.config.feature_transformer_model}")
-            
-        
 
         if self.config.pretrain:
             # TODO add transformer decoder
             if self.config.feature_decoder_model == "pointnet":
-                self.decoder = self.config.feature_decoder_pointnet_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+                self.decoder = self.config.feature_decoder_pointnet_config.setup(
+                    input_size=self.feature_transformer.get_out_dim(),
+                    activation=activation,
+                    pretrain=self.config.pretrain,
+                    mask_ratio=self.config.mask_ratio,
+                )
             elif self.config.feature_decoder_model == "custom":
-                self.decoder = self.config.feature_decoder_custom_config.setup(input_size=self.feature_model.get_out_dim(), activation=activation, pretrain=self.config.pretrain, mask_ratio=self.config.mask_ratio)
+                self.decoder = self.config.feature_decoder_custom_config.setup(
+                    input_size=self.feature_transformer.get_out_dim(),
+                    activation=activation,
+                    pretrain=self.config.pretrain,
+                    mask_ratio=self.config.mask_ratio,
+                )
+            elif self.config.feature_decoder_model == "stratified":
+                self.decoder = self.config.feature_decoder_stratified_config.setup(
+                    input_size=self.feature_transformer.get_out_dim(),
+                    activation=activation,
+                    pretrain=self.config.pretrain,
+                    mask_ratio=self.config.mask_ratio,
+                )
             else:
                 raise ValueError(f"Unknown feature transformer config {self.config.feature_decoder_model}")
 
@@ -232,7 +265,6 @@ class NeuralSemanticFieldModel(Model):
         return
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
-
         param_groups = {
             "feature_network": list(self.feature_model.parameters()),
             "feature_transformer": list(self.feature_transformer.parameters()),
@@ -261,10 +293,11 @@ class NeuralSemanticFieldModel(Model):
 
         # potentially batch up and infuse field outputs with random points
         field_outputs_raw, transform_batch = self.batching(ray_samples, field_outputs_raw)
+
         
         # TODO return the transformed points
         outs, transform_batch = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
-
+        print("outs.shape", outs.shape)
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
@@ -300,18 +333,16 @@ class NeuralSemanticFieldModel(Model):
             field_encodings = self.feature_transformer(outs, batch=transform_batch)
             field_encodings = self.decoder(field_encodings)
             field_outputs = self.head(field_encodings)
-            
 
         # unbatch the data
         if self.config.batching_mode != "off":
             field_outputs = field_outputs.reshape(1, -1, field_outputs.shape[-1])
-            
+
             # reshuffle results
             field_outputs = field_outputs[:, transform_batch["ids_restore"], :]
-            
+
             # removed padding token
             field_outputs = field_outputs[:, : ray_samples.shape[0], :]
-            
 
         if self.config.mode == "rgb":
             # debug rgb
@@ -338,6 +369,8 @@ class NeuralSemanticFieldModel(Model):
                 density_mask.sum(),
                 " density_mask: ",
                 density_mask,
+                " field_outputs: ",
+                field_outputs.shape
             )
             semantics[density_mask] = field_outputs  # 1, num_dense_samples, 6
             weights_all[density_mask] = weights
@@ -351,7 +384,7 @@ class NeuralSemanticFieldModel(Model):
 
             # semantics colormaps
             semantic_labels = torch.argmax(torch.nn.functional.softmax(semantics, dim=-1), dim=-1)
-            
+
             self.semantics.colors = self.semantics.colors.to(self.device)
             semantics_colormap = self.semantics.colors[semantic_labels].to(self.device)
             outputs["semantics_colormap"] = semantics_colormap
@@ -563,8 +596,6 @@ class NeuralSemanticFieldModel(Model):
             rgb = outputs["rgb"]
             combined_rgb = torch.cat([image, rgb], dim=1)
             images_dict["img"] = combined_rgb
-            
-
 
             # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
             image = torch.moveaxis(image, -1, 0)[None, ...]
@@ -606,7 +637,7 @@ class NeuralSemanticFieldModel(Model):
         if self.config.debug_show_image:
             fig = px.imshow(images_dict["img"].cpu().numpy())
             fig.show()
-                
+
         return metrics_dict, images_dict
 
     def set_model(self, model: Model):
