@@ -211,7 +211,6 @@ class Trainer:
                             step, location=TrainingCallbackLocation.BEFORE_TRAIN_ITERATION
                         )
 
-                    CONSOLE.print("Train loop")
                     # time the forward pass
                     loss, loss_dict, metrics_dict = self.train_iteration(step)
 

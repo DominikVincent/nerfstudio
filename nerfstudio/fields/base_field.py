@@ -74,13 +74,19 @@ class Field(nn.Module):
             self._sample_locations.shape[:-1] == self._density_before_activation.shape[:-1]
         ), "Sample locations and density must have the same shape besides the last dimension."
 
-        normals = torch.autograd.grad(
-            self._density_before_activation,
-            self._sample_locations,
-            grad_outputs=torch.ones_like(self._density_before_activation),
-            retain_graph=True,
-        )[0]
-
+        # assert no nans
+        assert(torch.isnan(self._sample_locations).sum() == 0)
+        assert(torch.isnan(self._density_before_activation).sum() == 0)
+        try:
+            normals = torch.autograd.grad(
+                self._density_before_activation,
+                self._sample_locations,
+                grad_outputs=torch.ones_like(self._density_before_activation),
+                retain_graph=True,
+            )[0]
+        except:
+            print("Error in computing normals. Using random normals instead.")
+            normals = torch.randn_like(self._sample_locations)
         normals = -torch.nn.functional.normalize(normals, dim=-1)
 
         return normals

@@ -48,10 +48,10 @@ class ComputePSNR:
         assert self.output_path.suffix == ".json"
         if self.save_images:
             metrics_dict = pipeline.get_average_eval_image_metrics(
-                save_path=self.output_path.parent, wandb=self.use_wandb
+                save_path=self.output_path.parent, log_to_wandb=self.use_wandb
             )
         else:
-            metrics_dict = pipeline.get_average_eval_image_metrics(wandb=self.use_wandb)
+            metrics_dict = pipeline.get_average_eval_image_metrics(log_to_wandb=self.use_wandb)
 
         # log the final results
         print(metrics_dict)
@@ -69,6 +69,9 @@ class ComputePSNR:
         # Save output to output file
         self.output_path.write_text(json.dumps(benchmark_info, indent=2), "utf8")
         CONSOLE.print(f"Saved results to: {self.output_path}")
+        
+        if wandb.run is not None:
+            wandb.finish()
 
 
 def entrypoint():

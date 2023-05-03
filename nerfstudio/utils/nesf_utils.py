@@ -1,6 +1,7 @@
 from math import ceil, sqrt
-from typing import Union
+from typing import Tuple, Union
 
+import numpy as np
 import plotly.graph_objs as go
 import torch
 from rich.console import Console
@@ -83,7 +84,7 @@ def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_
     row_size = columns_per_row * batch_size
     row_count = ceil(W / row_size)
 
-    print(
+    CONSOLE.print(
         "Row count",
         row_count,
         "columns per row",
@@ -110,10 +111,11 @@ def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_
     masking = torch.cat((masking_top, masking_bottom)).to(device)
 
     points = ray_samples.frustums.get_positions()
-    scene_bound = scene_bound.to(points.device)
-    rand_points = torch.rand((padding, 3), device=points.device) * (scene_bound[1] - scene_bound[0]) + scene_bound[0]
+    points_min = torch.min(points, dim=-2).values
+    points_max = torch.max(points, dim=-2).values
+    rand_points = torch.rand((padding, 3), device=points.device) * (points_max - points_min) + points_min
     # scale points to be closer to the scene bounds center by factor of 0.6
-    rand_points = (rand_points - scene_bound.mean(0)) * 0.6 + scene_bound.mean(0)
+    # rand_points = (rand_points - scene_bound.mean(0)) * 0.6 + scene_bound.mean(0)
     
     points_padded = torch.cat((points, rand_points))
 
@@ -134,20 +136,32 @@ def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_
     return field_outputs, masking, ids_shuffle, ids_restore, points_padded, directions_padded
 
 
-def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor] = None):
+def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor] = None, normals: torch.Tensor = None):
     CONSOLE.print("Visualizing point batch")
     batch_size = points_pad.shape[1]
 
     if ids_shuffle is not None:
         points_pad = points_pad.view(-1, 3)[ids_shuffle, :].to("cpu")
         points_pad = points_pad.reshape(-1, batch_size, 3)
+        if normals is not None:
+            normals = normals.view(-1, 3)[ids_shuffle, :].to("cpu")
+            normals = normals.reshape(-1, batch_size, 3)
     else:
         points_pad = points_pad.to("cpu")
-
+        if normals is not None:
+            normals = normals.to("cpu")
+            
     # points pad reordered should be [B, batch_size, 3]
     if len(points_pad.shape) == 2:
         points_pad = points_pad.unsqueeze(0)
+    
+    if normals is not None and len(normals.shape) == 3:
+        normals = normals.reshape(-1 ,3)
 
+    if normals is not None:
+        # normalize normals to length 0.01
+        normals = (normals / torch.norm(normals, dim=-1, keepdim=True)) * 0.003
+        
     points = torch.empty((0, 3))
     colors = torch.empty((0, 3))
     for i in range(points_pad.shape[0]):
@@ -160,13 +174,39 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
         mode="markers",
         marker=dict(color=colors, size=1, opacity=0.8),
     )
-
+    data = [scatter]
     # create a layout with axes labels
     layout = go.Layout(
         title=f"RGB points: {points.shape}",
         scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"), aspectmode="data"),
     )
-    fig = go.Figure(data=[scatter], layout=layout)
+    if normals is not None:
+        # calculate end points for each line
+        endpoints = points + normals
+        n = points.shape[0]
+        # create x and y arrays for each line
+        x = np.c_[points[:,0], endpoints[:,0], np.full(n, np.nan)].flatten()
+        y = np.c_[points[:,1], endpoints[:,1], np.full(n, np.nan)].flatten()
+        z = np.c_[points[:,2], endpoints[:,2], np.full(n, np.nan)].flatten()
+        normals = go.Scatter3d(x=x, y=y, z=z, mode='lines')
+        data.append(normals)
+    fig = go.Figure(data=data, layout=layout)
+    # if normals is not None:
+    #     fig.add_trace(
+    #         go.Cone(
+    #             x=points[:, 0],
+    #             y=points[:, 1],
+    #             z=points[:, 2],
+    #             u=normals[:, 0],
+    #             v=normals[:, 1],
+    #             w=normals[:, 2],
+    #             sizemode="absolute",
+    #             sizeref=0.5,
+    #             anchor="tail",
+    #             showscale=False,
+    #             opacity=0.5,
+    #         )
+    #     )
     fig.show()
 
 
@@ -208,3 +248,19 @@ def log_points_to_wandb(points_pad: torch.Tensor, ids_shuffle: Union[None, torch
         colors = torch.cat((colors, torch.randn((1, 3)).repeat(batch_size, 1) * 255))
     point_cloud = torch.cat((points, colors), dim=1).detach().cpu().numpy()
     wandb.log({"point_samples": wandb.Object3D(point_cloud)}, step=wandb.run.step)
+
+
+def compute_mIoU(confusion_matrix) -> Tuple[float, np.ndarray]:
+    """columns is prediction rows is true"""
+    intersection = np.diag(confusion_matrix)
+    ground_truth_set = confusion_matrix.sum(axis=0)
+    predicted_set = confusion_matrix.sum(axis=1)
+    union = ground_truth_set + predicted_set - intersection
+    
+    
+    IoU = intersection / union.astype(np.float32)
+
+    mIoU = np.nanmean(IoU)
+    
+    
+    return mIoU, IoU

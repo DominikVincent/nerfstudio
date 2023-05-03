@@ -96,6 +96,7 @@ class CacheDataloader(DataLoader):
         """Returns a list of batches from the dataset attribute."""
 
         indices = random.sample(range(len(self.dataset)), k=self.num_images_to_sample_from)
+        print("indices", indices)
         batch_list = []
         results = []
 
@@ -117,12 +118,8 @@ class CacheDataloader(DataLoader):
         """Returns a collated batch."""
         batch_list = self._get_batch_list()
         collated_batch = self.collate_fn(batch_list)
-        print("dL self device:", self.device)
 
-        # time the function
-        start_time = time.time()
         collated_batch = get_dict_to_torch(collated_batch, device=self.device, exclude=["image", "semantics"])
-        print("Dict to torch device:", time.time() - start_time)
         return collated_batch
 
     def __iter__(self):
@@ -140,9 +137,9 @@ class CacheDataloader(DataLoader):
                 self.first_time = False
             else:
                 collated_batch = self.cached_collated_batch
-                start_time = time.time()
+                # start_time = time.time()
                 collated_batch = get_dict_to_torch(collated_batch, device=self.device, exclude=["image", "semantics"])
-                print("Dict to torch device:", time.time() - start_time)
+                # print("Dict to torch device:", time.time() - start_time)
 
                 self.num_repeated += 1
 

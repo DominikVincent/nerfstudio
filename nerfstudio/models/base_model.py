@@ -208,4 +208,8 @@ class Model(nn.Module):
             loaded_state: dictionary of pre-trained model states
         """
         state = {key.replace("module.", ""): value for key, value in loaded_state["model"].items()}
-        self.load_state_dict(state, strict=False)  # type: ignore
+        missing_keys, unexpected_keys = self.load_state_dict(state, strict=True)  # type: ignore
+        
+        print("Loaded model from checkpoint")
+        print("Missing keys: ", missing_keys)
+        print("Unexpected keys: ", unexpected_keys)

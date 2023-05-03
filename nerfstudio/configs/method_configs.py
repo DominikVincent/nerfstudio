@@ -334,8 +334,12 @@ method_configs["phototourism"] = TrainerConfig(
 )
 
 
-# RAYS_PER_BATCH = 122886
-RAYS_PER_BATCH = 65536
+RAYS_PER_BATCH = 122886
+# RAYS_PER_BATCH = 65536
+# RAYS_PER_BATCH = 32768
+# RAYS_PER_BATCH=16384
+# RAYS_PER_BATCH=8192
+# RAYS_PER_BATCH=4096
 MAX_NUM_ITERATIONS = 500000
 END_DECAY = 80000
 LR_START = 1e-4
@@ -344,7 +348,7 @@ method_configs["nesf"] = TrainerConfig(
     method_name="nesf",
     experiment_name="/tmp",
     steps_per_eval_batch=100,
-    steps_per_eval_image=100,
+    steps_per_eval_image=250,
     steps_per_save=5000,
     max_num_iterations=MAX_NUM_ITERATIONS,
     steps_per_eval_all_images=1000000,
@@ -355,9 +359,9 @@ method_configs["nesf"] = TrainerConfig(
             train_num_rays_per_batch=RAYS_PER_BATCH,
             eval_num_rays_per_batch=RAYS_PER_BATCH,
             steps_per_model=1,
-            train_num_images_to_sample_from=6,
+            train_num_images_to_sample_from=8,
             train_num_times_to_repeat_images=4,
-            eval_num_images_to_sample_from=6,
+            eval_num_images_to_sample_from=8,
             eval_num_times_to_repeat_images=4,
             camera_optimizer=CameraOptimizerConfig(
                 mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
@@ -377,8 +381,8 @@ method_configs["nesf"] = TrainerConfig(
             # "scheduler": None,
         },
         "learned_low_density_params": {
-            "optimizer": AdamOptimizerConfig(lr=LR_START, eps=1e-13),
-            "scheduler": SchedulerConfig(lr_final=LR_END, max_steps=END_DECAY),
+            "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1e-4, max_steps=END_DECAY),
             # "scheduler": None,
         },
         "decoder": {

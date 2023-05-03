@@ -266,6 +266,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         """Moves all models who shouldnt be active to cpu."""
         model_idx = self.step_to_dataset(step)
         for i, dataset in enumerate(self.train_datasets):
+            # print(i, model_idx, dataset.model.device)
             if i == model_idx:
                 continue
             dataset = cast(NesfItemDataset, dataset)
@@ -276,7 +277,6 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
         model_idx = self.step_to_dataset(step)
-        CONSOLE.print(f"Train model scene {model_idx}")
         image_batch = next(self.iter_train_image_dataloaders[model_idx])
         assert self.train_pixel_samplers[model_idx] is not None
         batch = self.train_pixel_samplers[model_idx].sample(image_batch)

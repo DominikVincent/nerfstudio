@@ -3,10 +3,12 @@
 set -x  # Enable debug mode to print each command
 
 # Set the path to the directory containing the folders
-directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf"
+# directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf"
+directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/toybox-5/"
 
 # Set ouput directory
-output_dir="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/klever_depth_models_nesf"
+# output_dir="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/klever_depth_normal_models_nesf"
+output_dir="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/toybox-5-depth-normal-models"
 
 # check or create output directory
 if [ ! -d "$output_dir" ]; then

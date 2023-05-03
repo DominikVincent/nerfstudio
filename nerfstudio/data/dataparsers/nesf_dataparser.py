@@ -36,7 +36,7 @@ from nerfstudio.utils.writer import put_config
 CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
 
-SEMANTIC_CLASSES_CLEVR_OBJECTS = ["background", "cube", "cylinder", "sphere", "cone", "torus"]
+SEMANTIC_CLASSES_CLEVR_OBJECTS = ["background", "Cube", "Cylinder", "Sphere", "Torus", "Gear"]
 SEMANTIC_CLASSES_KUBASIC_OBJECTS = [
     "background",
     "cube",
@@ -179,7 +179,7 @@ class Nesf(DataParser):
                 load_step=conf["load_step"],
                 data_dir=data_path,
                 config=conf["model_config"],
-            ).to("cpu")
+            ).to("cpu").to(torch.float32)
             CONSOLE.print(f"[green] loaded model from {data_path}")
 
             # get the list of semantic images. For each image there should be a semantic image.
@@ -237,7 +237,9 @@ class Nesf(DataParser):
                     mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
                 ),
             ),
-            model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15),
+            model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15,
+                                    #   predict_normals=True
+                                      ),
         )
         pipeline.datamanager.dataparser = cast(NerfstudioDataParserConfig, pipeline.datamanager.dataparser)
         pipeline.datamanager.dataparser.train_split_percentage = config.get(

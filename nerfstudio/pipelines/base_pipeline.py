@@ -359,7 +359,11 @@ class VanillaPipeline(Pipeline):
             loaded_state: pre-trained model state dict
         """
         state = {key.replace("module.", ""): value for key, value in loaded_state.items()}
-        self.load_state_dict(state, strict=False)
+        missing_keys, unexpected_keys = self.load_state_dict(state, strict=False)
+        
+        print("Loaded Pipeline")
+        print("Missing Keys: ", missing_keys)
+        print("Unexpected Keys: ", unexpected_keys)
 
     def get_training_callbacks(
         self, training_callback_attributes: TrainingCallbackAttributes

@@ -34,389 +34,17 @@ CONSOLE = Console(width=120)
 
 
 @dataclass
-class TranformerEncoderModelConfig(InstantiateConfig):
-    _target: Type = field(default_factory=lambda: TransformerEncoderModel)
-
-    num_layers: int = 6
-    """The number of encoding layers in the feature transformer."""
-    num_heads: int = 8
-    """The number of multihead attention heads in the feature transformer."""
-    dim_feed_forward: int = 64
-    """The dimension of the feedforward network model in the feature transformer."""
-    dropout_rate: float = 0.2
-    """The dropout rate in the feature transformer."""
-    feature_dim: int = 64
-    """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
-
-
-class TransformerEncoderModel(torch.nn.Module):
-    def __init__(
-        self,
-        config: TranformerEncoderModelConfig,
-        input_size: int,
-        activation: Union[Callable, None] = None,
-        pretrain: bool = False,
-        mask_ratio: float = 0.75,
-    ):
-        super().__init__()
-        self.config = config
-        self.input_size = input_size
-        self.activation = activation
-        self.pretrain = pretrain
-        self.mask_ratio = mask_ratio
-
-        # Feature dim layer
-        self.feature_dim_layer = torch.nn.Sequential(
-            torch.nn.Linear(input_size, self.config.feature_dim),
-            torch.nn.ReLU(),
-        )
-
-        # Define the transformer encoder
-        self.encoder_layer = torch.nn.TransformerEncoderLayer(
-            self.config.feature_dim,
-            self.config.num_heads,
-            self.config.dim_feed_forward,
-            self.config.dropout_rate,
-            batch_first=True,
-        )
-        self.transformer_encoder = torch.nn.TransformerEncoder(self.encoder_layer, self.config.num_layers)
-
-        if self.pretrain:
-            self.mask_token = torch.nn.Parameter(torch.randn(1, 1, input_size), requires_grad=True)
-            torch.nn.init.normal_(self.mask_token, std=0.02)
-
-    def random_masking(self, x, mask_ratio):
-        """
-        Perform per-sample random masking by per-sample shuffling.
-        Taken from: https://github.com/facebookresearch/mae/blob/main/models_mae.py
-        Per-sample shuffling is done by argsort random noise.
-        x: [N, L, D], sequence
-        """
-        N, L, D = x.shape  # batch, length, dim
-        len_keep = int(L * (1 - mask_ratio))
-
-        noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
-
-        # sort noise for each sample
-        ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
-        ids_restore = torch.argsort(ids_shuffle, dim=1)
-
-        # keep the first subset
-        ids_keep = ids_shuffle[:, :len_keep]
-        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
-
-        # generate the binary mask: 0 is keep, 1 is remove
-        mask = torch.ones([N, L], device=x.device)
-        mask[:, :len_keep] = 0
-        # unshuffle to get the binary mask
-        mask = torch.gather(mask, dim=1, index=ids_restore)
-
-        return x_masked, mask, ids_restore
-
-    def forward(self, x, batch: dict):
-        """
-        batch = {
-            ids_restore=None
-            src_key_padding_mask=None
-        }
-
-        If pretrain == False:
-            the input x is a sequence of shape [N, L, D] will simply be transformed by the transformer encoder.
-            it returns x - where x is the encoded input sequence of shape [N, L, feature_dim]
-
-        If pretrain == True && ids_restore is None:
-            then it assumes it is the encoder. The input will be masked and the ids_reorder will be returned together with the transformed input and the mask.
-            return x, masks, ids_restore
-
-        If pretrain == True && ids_restore is not None:
-            then it assumes it is the decoder. The input will be the masked input and the ids_reorder will be used to reorder the input.
-            it retruns x - where x is the encoded input sequence of shape [N, L, feature_dim]
-        """
-
-        ids_restore = batch.get("ids_restore", None)
-        src_key_padding_mask = batch.get("src_key_padding_mask", None)
-
-        encode = ids_restore is None
-        # if encode:
-        #     CONSOLE.print("Encoding", style="bold")
-        # else:
-        #     CONSOLE.print("Decoding", style="bold")
-
-        mask = None
-        if self.pretrain and encode:
-            x, mask, ids_restore = self.random_masking(x, self.mask_ratio)
-        elif self.pretrain and not encode:
-            mask_tokens = self.mask_token.repeat(x.shape[0], ids_restore.shape[1] - x.shape[1], 1)
-            x_ = torch.cat([x, mask_tokens], dim=1)  # no cls token
-            x = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]))  # unshuffle
-
-        # CONSOLE.print(f"Input shape: {x.shape}")
-        x = self.feature_dim_layer(x)  #
-
-        # Apply the transformer encoder. Last step is layer normalization
-        x = self.transformer_encoder(
-            x, src_key_padding_mask=src_key_padding_mask
-        )  # {1, num_dense_samples, feature_dim}
-
-        if self.activation is not None:
-            x = self.activation(x)
-
-        if self.pretrain and encode:
-            return x, mask, ids_restore
-
-        return x
-
-    def get_out_dim(self) -> int:
-        return self.config.feature_dim
-
-
-@dataclass
-class FeatureGeneratorTorchConfig(InstantiateConfig):
-    _target: type = field(default_factory=lambda: FeatureGeneratorTorch)
-
-    use_rgb: bool = False
-    """Should the rgb be used as a feature?"""
-    out_rgb_dim: int = 16
-    """The output dimension of the rgb feature"""
-
-    use_density: bool = True
-    """Should the density be used as a feature?"""
-    out_density_dim: int = 2
-
-    use_pos_encoding: bool = True
-    """Should the position encoding be used as a feature?"""
-
-    use_dir_encoding: bool = False
-    """Should the direction encoding be used as a feature?"""
-    
-    use_normal_encoding: bool = True
-    """Should the direction encoding be used as a feature?"""
-
-    rot_augmentation: bool = True
-    """Should the random rot augmentation around the z axis be used?"""
-
-    visualize_point_batch: bool = False
-    """Visualize the points of the batch? Useful for debugging"""
-
-    log_point_batch: bool = True
-    """Log the pointcloud to wandb? Useful for debugging. Happens in chance 1/5000"""
-
-    pos_encoder: Literal["sin", "rff"] = "sin"
-    """what kind of feature encoded should be used?"""
-
-
-class FeatureGeneratorTorch(nn.Module):
-    """Takes in a batch of b Ray bundles, samples s points along the ray. Then it outputs n x m x f matrix.
-    Each row corresponds to one feature of a sampled point of the ray.
-
-    Args:
-        nn (_type_): _description_
-    """
-
-    def __init__(self, config: FeatureGeneratorTorchConfig, aabb: TensorType[2, 3]):
-        super().__init__()
-
-        self.config: FeatureGeneratorTorchConfig = config
-
-        self.aabb = Parameter(aabb, requires_grad=False)
-        self.aabb = cast(TensorType[2, 3], self.aabb)
-
-        if self.config.use_rgb:
-            self.rgb_linear = nn.Sequential(
-                nn.Linear(3, 128),
-                nn.ReLU(),
-                nn.Linear(128, 128),
-                nn.ReLU(),
-                nn.Linear(128, self.config.out_rgb_dim),
-            )
-
-        if self.config.use_density:
-            self.density_linear = nn.Sequential(
-                nn.Linear(1, 64),
-                nn.ReLU(),
-                nn.Linear(64, 64),
-                nn.ReLU(),
-                nn.Linear(64, self.config.out_density_dim),
-            )
-
-        if self.config.use_pos_encoding:
-            if self.config.pos_encoder == "sin":
-                self.pos_encoder = NeRFEncoding(
-                    in_dim=3, num_frequencies=8, min_freq_exp=0.0, max_freq_exp=8.0, include_input=True
-                )
-            elif self.config.pos_encoder == "rff":
-                self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
-            else:
-                raise ValueError(f"Unknown pos encoder {self.config.pos_encoder}")
-        if self.config.use_dir_encoding or self.config.use_normal_encoding:
-            self.dir_encoder = SHEncoding()
-
-        self.learned_mask_value = torch.nn.Parameter(torch.randn(self.get_out_dim()))
-
-    def forward(self, field_outputs: dict, transform_batch: dict):
-        """
-        Takes a ray bundle filters out non dense points and returns a feature matrix of shape [num_dense_samples, feature_dim]
-        used_samples be 1 if surface sampling is enabled ow used_samples = num_ray_samples
-
-        Input:
-        - ray_bundle: RayBundle [N]
-
-        Output:
-         - out: [1, points, feature_dim]
-         - weights: [N, num_ray_samples, 1]
-         - density_mask: [N, used_samples]
-         - misc:
-            - rgb: [N, used_samples, 3]
-            - density: [N, used_samples, 1]
-            - ray_samples: [N, used_samples]
-        """
-        device = transform_batch["points_xyz"].device
-
-        encodings = []
-
-        if self.config.use_rgb:
-            rgb = field_outputs[FieldHeadNames.RGB]
-            assert not torch.isnan(rgb).any()
-            assert not torch.isinf(rgb).any()
-
-            rgb_out = self.rgb_linear(rgb)
-
-            assert not torch.isnan(rgb_out).any()
-            assert not torch.isinf(rgb_out).any()
-
-            encodings.append(rgb_out)
-
-        if self.config.use_density:
-            density = field_outputs[FieldHeadNames.DENSITY]
-            # normalize density between 0 and 1
-            density = (density - density.min()) / (density.max() - density.min())
-            # assert no nan and no inf values
-            # assert not torch.isnan(density).any()
-            # assert not torch.isinf(density).any()
-            if torch.isnan(density).any():
-                CONSOLE.print("density has nan values: ", torch.isnan(density).sum())
-                density[torch.isnan(density)] = 0.0
-            if torch.isinf(density).any():
-                CONSOLE.print("density has inf values: ", torch.isinf(density).sum())
-                density[torch.isinf(density)] = 1000000.0
-
-            assert not torch.isnan(density).any()
-            density = self.density_linear(density)
-            assert not torch.isnan(density).any()
-            encodings.append(density)
-
-        if self.config.rot_augmentation:
-            batch_size = transform_batch["points_xyz"].shape[0]
-            angles = uniform.Uniform(0, 2 * torch.pi).sample((batch_size,))
-
-            # Construct the rotation matrices from the random angles.
-            zeros = torch.zeros_like(angles)
-            ones = torch.ones_like(angles)
-            c = torch.cos(angles)
-            s = torch.sin(angles)
-            rot_matrix = torch.stack(
-                [
-                    torch.stack([c, -s, zeros], dim=-1),
-                    torch.stack([s, c, zeros], dim=-1),
-                    torch.stack([zeros, zeros, ones], dim=-1),
-                ],
-                dim=-2,
-            ).to(transform_batch["points_xyz"].device)
-
-        else:
-            rot_matrix = torch.eye(3, device=device)
-
-        positions = transform_batch["points_xyz"]
-
-        if self.config.rot_augmentation:
-            # TODO consider turning that off if not self.training()
-            positions = torch.matmul(positions, rot_matrix)
-            # normalize postions to be within scene bounds  self.aabb: Tensor[2,3]
-            # TODO if needed add the normalizeation for now hardcode clamp
-            positions = torch.clamp(positions, self.aabb[0], self.aabb[1])
-            
-
-        positions = cast(TensorType, positions)
-        # The positions need to be in [0,1] for the positional encoding
-        positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
-        transform_batch["points_xyz"] = positions_normalized
-
-        # assert that the points are between 0 and 1
-        assert torch.all(positions_normalized >= 0.0)
-        assert torch.all(positions_normalized <= 1.0)
-
-        # normalize positions at 0 mean and within unit ball
-        # mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
-        # dist = torch.norm(positions_normalized - mean, dim=-1).max()
-
-        # positions_normalized = (positions_normalized - mean) / dist
-        if self.config.visualize_point_batch:
-            visualize_point_batch(transform_batch["points_xyz"])
-            a = input("press enter to continue...")
-
-        if self.config.log_point_batch and random.random() < (1 / 5000):
-            log_points_to_wandb(transform_batch["points_xyz"])
-        
-        assert ((not self.config.use_normal_encoding) or FieldHeadNames.NORMALS in field_outputs)
-        if FieldHeadNames.NORMALS in field_outputs:
-            normals = field_outputs[FieldHeadNames.NORMALS]
-            if self.config.rot_augmentation:
-                # TODO consider turning that off if not self.training()
-                normals = torch.matmul(normals, rot_matrix)
-            normals = get_normalized_directions(normals)
-            transform_batch["normals"] = normals
-            if self.config.use_normal_encoding:
-                encodings.append(self.dir_encoder(normals))
-
-        if self.config.use_pos_encoding:
-            pos_encoding = self.pos_encoder(positions_normalized)
-            assert not torch.isnan(pos_encoding).any()
-            encodings.append(pos_encoding)
-            
-
-        if self.config.use_dir_encoding:
-            directions = transform_batch["directions"]
-            directions = get_normalized_directions(directions)
-            if self.config.rot_augmentation:
-                # TODO consider turning that off if not self.training()
-                directions = torch.matmul(directions, rot_matrix)
-            dir_encoding = self.dir_encoder(directions)
-
-            assert not torch.isnan(dir_encoding).any()
-            encodings.append(dir_encoding)
-
-        out = torch.cat(encodings, dim=-1)
-        # out: 1, num_dense, out_dim
-        # weights: num_rays, num_samples, 1
-
-        if "src_key_padding_mask" in transform_batch and transform_batch["src_key_padding_mask"] is not None:
-            out[transform_batch["src_key_padding_mask"]] = self.learned_mask_value
-        return out, transform_batch
-
-    def get_out_dim(self) -> int:
-        total_dim = 0
-        total_dim += self.config.out_rgb_dim if self.config.use_rgb else 0
-        total_dim += self.config.out_density_dim if self.config.use_density else 0
-        total_dim += self.pos_encoder.get_out_dim() if self.config.use_pos_encoding else 0
-        total_dim += self.dir_encoder.get_out_dim() if self.config.use_dir_encoding else 0
-        total_dim += self.dir_encoder.get_out_dim() if self.config.use_normal_encoding else 0
-        return total_dim
-
-
-@dataclass
 class SceneSamplerConfig(InstantiateConfig):
     """target class to instantiate"""
 
     _target: Type = field(default_factory=lambda: SceneSampler)
 
-    samples_per_ray: int = 10
+    samples_per_ray: int = 5
     """How many samples per ray to take"""
     surface_sampling: bool = True
     """Sample only the surface or also the volume"""
     density_threshold: float = 0.7
-    """The density threshold for which to not use the points for training"""
-    filter_points: bool = True
-    """Whether to filter out points for training"""
+    """The density threshold for which to not use the points for training. Points below will not be used"""
     z_value_threshold: float = -1
     """What is the minimum z value a point has to have"""
     xy_distance_threshold: float = 1
@@ -427,6 +55,7 @@ class SceneSamplerConfig(InstantiateConfig):
     """Get normals for the samples"""
 
 
+
 class SceneSampler:
     """_summary_ A class which samples a scene given a ray bundle.
     It will filter out points/ray_samples and batch up the scene.
@@ -435,7 +64,7 @@ class SceneSampler:
     def __init__(self, config: SceneSamplerConfig):
         self.config = config
 
-    def sample_scene(self, ray_bundle: RayBundle, model: Model) -> Tuple[RaySamples, torch.Tensor, dict, torch.Tensor]:
+    def sample_scene(self, ray_bundle: RayBundle, model: Model) -> Tuple[RaySamples, torch.Tensor, dict, torch.Tensor, dict]:
         """_summary_
         Samples the model for a given ray bundle. Filters and batches points.
 
@@ -448,6 +77,7 @@ class SceneSampler:
         - weights (_type_): The weights for the ray samples which are used. (N_dense x 1)
         - field_outputs (_type_): The field outputs for the ray samples which are used. (N_dense x dim)
         - final_mask (_type_): The mask for the ray samples which are used. Is the shape of the original ray_samples. (N_rays x N_samples)
+        - original_fields_outputs (_type_): The original field outputs for the ray samples. (N_rays x N_samples x dim) N_samples = 1 in case of surface sampling.
 
         Raises:
             NotImplementedError: _description_
@@ -462,6 +92,9 @@ class SceneSampler:
                 model.proposal_sampler.num_nerf_samples_per_ray = self.config.samples_per_ray
                 ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
                 field_outputs = model.field(ray_samples, compute_normals=self.config.get_normals)
+                field_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY].detach()  # type: ignore
+                model.field._density_before_activation = None
+                model.field._sample_locations = None
                 weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
 
         else:
@@ -469,7 +102,14 @@ class SceneSampler:
 
         if self.config.surface_sampling:
             ray_samples, weights, field_outputs = self.surface_sampling(ray_samples, weights, field_outputs)
-
+        
+        original_fields_outputs = {}
+        original_fields_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY].detach().clone()
+        original_fields_outputs[FieldHeadNames.RGB] = field_outputs[FieldHeadNames.RGB].detach().clone()
+        if FieldHeadNames.NORMALS in field_outputs:
+            original_fields_outputs[FieldHeadNames.NORMALS] = field_outputs[FieldHeadNames.NORMALS].detach().clone()
+        original_fields_outputs["ray_samples"] = ray_samples
+        
         density_mask = self.get_density_mask(field_outputs)
 
         pos_mask = self.get_pos_mask(ray_samples)
@@ -480,7 +120,7 @@ class SceneSampler:
 
         ray_samples, weights, field_outputs = self.apply_mask(ray_samples, weights, field_outputs, final_mask)
 
-        return ray_samples, weights, field_outputs, final_mask
+        return ray_samples, weights, field_outputs, final_mask, original_fields_outputs
 
     def surface_sampling(
         self, ray_samples: RaySamples, weights: TensorType["N_rays", "N_samples", 1], field_outputs: dict
@@ -571,6 +211,440 @@ class SceneSampler:
         # all but density_mask should have the reduced size
         return ray_samples, weights, field_outputs
 
+@dataclass
+class MaskerConfig(InstantiateConfig):
+    _target: Type = field(default_factory=lambda: Masker)
+
+    mask_ratio: float = 0.75
+    """The number of points which should be masked approximatly"""
+    
+    mode: Literal["random"] = "random"
+    """The mode of masking to use"""
+    
+    pos_encoder: Literal["sin", "rff"] = "sin"
+    """what kind of feature encoded should be used?"""
+
+class Masker(nn.Module):
+    def __init__(self, config: MaskerConfig, output_size: int):
+        super().__init__()
+        
+        self.config = config
+        
+        mask_token_value = torch.empty(1, 1, output_size)
+        torch.nn.init.kaiming_normal_(mask_token_value)
+        self.mask_token = torch.nn.Parameter(mask_token_value, requires_grad=True)
+        
+        if self.config.pos_encoder == "sin":
+            self.pos_encoder = NeRFEncoding(
+                in_dim=3, num_frequencies=8, min_freq_exp=0.0, max_freq_exp=8.0, include_input=True
+            )
+        elif self.config.pos_encoder == "rff":
+            self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
+        else:
+            raise ValueError(f"Unknown pos encoder {self.config.pos_encoder}")
+        assert self.pos_encoder.get_out_dim() <= output_size
+        
+    def forward(self, x: torch.Tensor, batch: dict):
+        self.mask(x, batch)
+        
+    def mask(self, x: torch.Tensor, batch: dict):
+        """Mask a certain amount of points in the batch for the encoder. It will filter out the mask points"""
+        if self.config.mode == "random":
+            return self.random_mask(x, batch)
+        else: 
+            raise ValueError(f"Unknown masking mode {self.config.mode}")
+        
+    
+    def unmask(self, x: torch.Tensor, batch: dict, ids_restore: torch.Tensor):
+        """Unmask the points in the batch for the decoder. It will filter out the mask points"""
+        # TODO also unmask the batch, i.e. unmask the points
+        mask_tokens = self.mask_token.repeat(x.shape[0], ids_restore.shape[1] - x.shape[1], 1)
+        
+        # add position encoding to the mask tokens
+        mask_tokens[..., :self.pos_encoder.get_out_dim()] = mask_tokens[..., :self.pos_encoder.get_out_dim()] + self.pos_encoder(batch["points_xyz_masked"])
+        
+        x_ = torch.cat([x, mask_tokens], dim=1)  # no cls token
+        x = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]))  # unshuffle
+        batch["points_xyz"] = batch["points_xyz_all"]
+        if "src_key_padding_mask_orig" in batch:
+            batch["src_key_padding_mask"] = batch["src_key_padding_mask_orig"]
+        return x, batch
+    
+    def random_mask(self, x: torch.Tensor, batch: dict):
+        """
+        Perform per-sample random masking by per-sample shuffling.
+        Taken from: https://github.com/facebookresearch/mae/blob/main/models_mae.py
+        Per-sample shuffling is done by argsort random noise.
+        x: [N, L, D], sequence
+        """
+        # TODO also mask batch correctly, i.e. mask the same points in the batch
+        N, L, D = x.shape  # batch, length, dim
+        len_keep = int(L * (1 - self.config.mask_ratio))
+
+        noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
+
+        # sort noise for each sample
+        ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
+        ids_restore = torch.argsort(ids_shuffle, dim=1)
+
+        # keep the first subset
+        ids_keep = ids_shuffle[:, :len_keep]
+        ids_mask = ids_shuffle[:, len_keep:]
+        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+        batch["points_xyz_all"] = batch["points_xyz"]
+        batch["points_xyz"] = torch.gather(batch["points_xyz"], dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, 3))
+        batch["points_xyz_masked"] = torch.gather(batch["points_xyz_all"], dim=1, index=ids_mask.unsqueeze(-1).repeat(1, 1, 3))
+        if "src_key_padding_mask" in batch and batch["src_key_padding_mask"] is not None:
+            batch["src_key_padding_mask_orig"] = batch["src_key_padding_mask"]
+            batch["src_key_padding_mask"] = torch.gather(batch["src_key_padding_mask"], dim=1, index=ids_keep)
+        
+        # generate the binary mask: 0 is keep, 1 is remove
+        mask = torch.ones([N, L], device=x.device)
+        mask[:, :len_keep] = 0
+        # unshuffle to get the binary mask
+        mask = torch.gather(mask, dim=1, index=ids_restore)
+        
+
+        return x_masked, mask, ids_restore, batch
+
+@dataclass
+class FeatureGeneratorTorchConfig(InstantiateConfig):
+    _target: type = field(default_factory=lambda: FeatureGeneratorTorch)
+
+    use_rgb: bool = False
+    """Should the rgb be used as a feature?"""
+    out_rgb_dim: int = 16
+    """The output dimension of the rgb feature"""
+
+    use_density: bool = True
+    """Should the density be used as a feature?"""
+    out_density_dim: int = 2
+
+    use_pos_encoding: bool = True
+    """Should the position encoding be used as a feature?"""
+
+    use_dir_encoding: bool = False
+    """Should the direction encoding be used as a feature?"""
+    
+    use_normal_encoding: bool = False
+    """Should the direction encoding be used as a feature?"""
+
+    rot_augmentation: bool = True
+    """Should the random rot augmentation around the z axis be used?"""
+
+    visualize_point_batch: bool = False
+    """Visualize the points of the batch? Useful for debugging"""
+
+    log_point_batch: bool = True
+    """Log the pointcloud to wandb? Useful for debugging. Happens in chance 1/5000"""
+
+    pos_encoder: Literal["sin", "rff"] = "sin"
+    """what kind of feature encoded should be used?"""
+
+
+class FeatureGeneratorTorch(nn.Module):
+    """Takes in a batch of b Ray bundles, samples s points along the ray. Then it outputs n x m x f matrix.
+    Each row corresponds to one feature of a sampled point of the ray.
+
+    Args:
+        nn (_type_): _description_
+    """
+
+    def __init__(self, config: FeatureGeneratorTorchConfig, aabb: TensorType[2, 3]):
+        super().__init__()
+
+        self.config: FeatureGeneratorTorchConfig = config
+
+        self.aabb = Parameter(aabb, requires_grad=False)
+        self.aabb = cast(TensorType[2, 3], self.aabb)
+
+        if self.config.use_rgb:
+            self.rgb_linear = nn.Sequential(
+                nn.Linear(3, 128),
+                nn.ReLU(),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+                nn.Linear(128, self.config.out_rgb_dim),
+            )
+
+        if self.config.use_density:
+            self.density_linear = nn.Sequential(
+                nn.Linear(1, 64),
+                nn.ReLU(),
+                nn.Linear(64, 64),
+                nn.ReLU(),
+                nn.Linear(64, self.config.out_density_dim),
+            )
+
+        if self.config.use_pos_encoding:
+            if self.config.pos_encoder == "sin":
+                self.pos_encoder = NeRFEncoding(
+                    in_dim=3, num_frequencies=8, min_freq_exp=0.0, max_freq_exp=8.0, include_input=True
+                )
+            elif self.config.pos_encoder == "rff":
+                self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
+            else:
+                raise ValueError(f"Unknown pos encoder {self.config.pos_encoder}")
+        if self.config.use_dir_encoding or self.config.use_normal_encoding:
+            self.dir_encoder = SHEncoding()
+
+        self.learned_mask_value = torch.nn.Parameter(torch.randn(self.get_out_dim())*0.5)
+
+    def forward(self, field_outputs: dict, transform_batch: dict):
+        """
+        Takes a ray bundle filters out non dense points and returns a feature matrix of shape [num_dense_samples, feature_dim]
+        used_samples be 1 if surface sampling is enabled ow used_samples = num_ray_samples
+
+        Input:
+        - ray_bundle: RayBundle [N]
+
+        Output:
+         - out: [1, points, feature_dim]
+         - weights: [N, num_ray_samples, 1]
+         - density_mask: [N, used_samples]
+         - misc:
+            - rgb: [N, used_samples, 3]
+            - density: [N, used_samples, 1]
+            - ray_samples: [N, used_samples]
+        """
+        device = transform_batch["points_xyz"].device
+
+        encodings = []
+
+        if self.config.use_rgb:
+            rgb = field_outputs[FieldHeadNames.RGB]
+            assert not torch.isnan(rgb).any()
+            assert not torch.isinf(rgb).any()
+
+            rgb_out = self.rgb_linear(rgb)
+
+            assert not torch.isnan(rgb_out).any()
+            assert not torch.isinf(rgb_out).any()
+
+            encodings.append(rgb_out)
+
+        if self.config.use_density:
+            density = field_outputs[FieldHeadNames.DENSITY]
+            # normalize density between 0 and 1
+            density = (density - density.min()) / (density.max() - density.min())
+            # assert no nan and no inf values
+            # assert not torch.isnan(density).any()
+            # assert not torch.isinf(density).any()
+            if torch.isnan(density).any():
+                CONSOLE.print("density has nan values: ", torch.isnan(density).sum())
+                density[torch.isnan(density)] = 0.0
+            if torch.isinf(density).any():
+                CONSOLE.print("density has inf values: ", torch.isinf(density).sum())
+                density[torch.isinf(density)] = 1000000.0
+
+            assert not torch.isnan(density).any()
+            density = self.density_linear(density)
+            assert not torch.isnan(density).any()
+            encodings.append(density)
+
+        if self.config.rot_augmentation:
+            batch_size = transform_batch["points_xyz"].shape[0]
+            angles = uniform.Uniform(0, 2 * torch.pi).sample((batch_size,))
+
+            # Construct the rotation matrices from the random angles.
+            zeros = torch.zeros_like(angles)
+            ones = torch.ones_like(angles)
+            c = torch.cos(angles)
+            s = torch.sin(angles)
+            rot_matrix = torch.stack(
+                [
+                    torch.stack([c, -s, zeros], dim=-1),
+                    torch.stack([s, c, zeros], dim=-1),
+                    torch.stack([zeros, zeros, ones], dim=-1),
+                ],
+                dim=-2,
+            ).to(transform_batch["points_xyz"].device)
+
+        else:
+            rot_matrix = torch.eye(3, device=device)
+
+        positions = transform_batch["points_xyz"]
+
+        if self.config.rot_augmentation:
+            # TODO consider turning that off if not self.training()
+            positions = torch.matmul(positions, rot_matrix)
+            # normalize postions to be within scene bounds  self.aabb: Tensor[2,3]
+            # TODO if needed add the normalizeation for now hardcode clamp
+            # positions = torch.clamp(positions, self.aabb[0], self.aabb[1])
+            
+
+        positions = self.normalize_positions(positions)            
+
+        positions = cast(TensorType, positions)
+        # The positions need to be in [0,1] for the positional encoding
+        positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
+        transform_batch["points_xyz"] = positions_normalized
+
+        # assert that the points are between 0 and 1
+        assert torch.all(positions_normalized >= 0.0)
+        assert torch.all(positions_normalized <= 1.0)
+
+        # normalize positions at 0 mean and within unit ball
+        # mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
+        # dist = torch.norm(positions_normalized - mean, dim=-1).max()
+
+        
+        assert ((not self.config.use_normal_encoding) or FieldHeadNames.NORMALS in field_outputs)
+        if FieldHeadNames.NORMALS in field_outputs:
+            normals = field_outputs[FieldHeadNames.NORMALS]
+            if self.config.rot_augmentation:
+                # TODO consider turning that off if not self.training()
+                normals = torch.matmul(normals, rot_matrix)
+            transform_batch["normals_unnormalized"] = normals
+            if self.config.use_normal_encoding:
+                normals = get_normalized_directions(normals)
+                transform_batch["normals_encoded"] = normals
+                encodings.append(self.dir_encoder(normals))
+
+        if self.config.use_pos_encoding:
+            pos_encoding = self.pos_encoder(positions_normalized)
+            assert not torch.isnan(pos_encoding).any()
+            encodings.append(pos_encoding)
+            
+
+        if self.config.use_dir_encoding:
+            directions = transform_batch["directions"]
+            directions = torch.nn.functional.normalize(directions, dim=-1)
+            if self.config.rot_augmentation:
+                # TODO consider turning that off if not self.training()
+                directions = torch.matmul(directions, rot_matrix)
+            directions = get_normalized_directions(directions)
+            dir_encoding = self.dir_encoder(directions)
+
+            assert not torch.isnan(dir_encoding).any()
+            encodings.append(dir_encoding)
+
+        out = torch.cat(encodings, dim=-1)
+        # out: 1, num_dense, out_dim
+        # weights: num_rays, num_samples, 1
+
+        if "src_key_padding_mask" in transform_batch and transform_batch["src_key_padding_mask"] is not None:
+            out[transform_batch["src_key_padding_mask"]] = self.learned_mask_value
+            
+        # positions_normalized = (positions_normalized - mean) / dist
+        if self.config.visualize_point_batch:
+            if "normals_unnormalized" in transform_batch:
+                visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals_unnormalized"])
+            else:
+                visualize_point_batch(transform_batch["points_xyz"])
+            a = input("press enter to continue...")
+
+        if self.config.log_point_batch and random.random() < (1 / 5000):
+            log_points_to_wandb(transform_batch["points_xyz"])
+        
+        return out, transform_batch
+
+    def normalize_positions(self, points: torch.tensor) -> torch.tensor:
+        # normalize points to be within 0, 1 for x,y
+        min_points = torch.min(points, dim=-2).values
+        max_points = torch.max(points, dim=-2).values
+        
+        scene_range = self.aabb[1] - self.aabb[0]
+        scene_min = self.aabb[0]
+        
+        x_range = (max_points[:, 0] - min_points[:, 0]).unsqueeze(-1)
+        y_range = (max_points[:, 1] - min_points[:, 1]).unsqueeze(-1)
+        z_range = (max_points[:, 2] - min_points[:, 2]).unsqueeze(-1)
+        
+        # choose the biggest range for normalization
+        range = torch.max(torch.max(x_range, y_range), z_range)
+        
+        # points[:, :, 0] = (points[:, :, 0] - min_points[:, 0].unsqueeze(-1)) / range
+        # points[:, :, 1] = (points[:, :, 1] - min_points[:, 1].unsqueeze(-1)) / range
+        # points[:, :, 2] = (points[:, :, 2] - min_points[:, 2].unsqueeze(-1)) / range
+        
+        points = (points - min_points.unsqueeze(1)) / range.unsqueeze(-1)
+        
+        points = points * scene_range + scene_min
+        
+        # check that the points are within the scene bounds
+        assert torch.all(points >= self.aabb[0])
+        assert torch.all(points <= self.aabb[1])
+        
+        return points
+        
+    
+    def get_out_dim(self) -> int:
+        total_dim = 0
+        total_dim += self.config.out_rgb_dim if self.config.use_rgb else 0
+        total_dim += self.config.out_density_dim if self.config.use_density else 0
+        total_dim += self.pos_encoder.get_out_dim() if self.config.use_pos_encoding else 0
+        total_dim += self.dir_encoder.get_out_dim() if self.config.use_dir_encoding else 0
+        total_dim += self.dir_encoder.get_out_dim() if self.config.use_normal_encoding else 0
+        return total_dim
+
+
+
+@dataclass
+class TranformerEncoderModelConfig(InstantiateConfig):
+    _target: Type = field(default_factory=lambda: TransformerEncoderModel)
+
+    num_layers: int = 6
+    """The number of encoding layers in the feature transformer."""
+    num_heads: int = 8
+    """The number of multihead attention heads in the feature transformer."""
+    dim_feed_forward: int = 64
+    """The dimension of the feedforward network model in the feature transformer."""
+    dropout_rate: float = 0.2
+    """The dropout rate in the feature transformer."""
+    feature_dim: int = 64
+    """The number of layers the transformer scales up the input dimensionality to the sequence dimensionality."""
+
+
+class TransformerEncoderModel(torch.nn.Module):
+    def __init__(
+        self,
+        config: TranformerEncoderModelConfig,
+        input_size: int,
+        activation: Union[Callable, None] = None,
+    ):
+        super().__init__()
+        self.config = config
+        self.input_size = input_size
+        self.activation = activation
+
+        # Feature dim layer
+        self.feature_dim_layer = torch.nn.Sequential(
+            torch.nn.Linear(input_size, self.config.feature_dim),
+            torch.nn.ReLU(),
+        )
+
+        # Define the transformer encoder
+        self.encoder_layer = torch.nn.TransformerEncoderLayer(
+            self.config.feature_dim,
+            self.config.num_heads,
+            self.config.dim_feed_forward,
+            self.config.dropout_rate,
+            batch_first=True,
+        )
+        self.transformer_encoder = torch.nn.TransformerEncoder(self.encoder_layer, self.config.num_layers)
+
+
+    def forward(self, x, batch: dict):
+
+        src_key_padding_mask = batch.get("src_key_padding_mask", None)
+
+        x = self.feature_dim_layer(x)  #
+
+        # Apply the transformer encoder. Last step is layer normalization
+        x = self.transformer_encoder(
+            x, src_key_padding_mask=src_key_padding_mask
+        )  # {1, num_dense_samples, feature_dim}
+
+        if self.activation is not None:
+            x = self.activation(x)
+
+        return x
+
+    def get_out_dim(self) -> int:
+        return self.config.feature_dim
+
+
 
 @dataclass
 class PointNetWrapperConfig(InstantiateConfig):
@@ -589,8 +663,6 @@ class PointNetWrapper(nn.Module):
         config: PointNetWrapperConfig,
         input_size: int,
         activation: Union[Callable, None] = None,
-        pretrain: bool = False,
-        mask_ratio: float = 0.75,
     ):
         """
         input_size: the true input feature size, i.e. the number of features per point. Internally the points will be prepended with the featuers.
@@ -599,8 +671,6 @@ class PointNetWrapper(nn.Module):
         self.config = config
         self.input_size = input_size
         self.activation = activation
-        self.pretrain = pretrain
-        self.mask_ratio = mask_ratio
 
         # PointNet takes xyz + features as input
         self.feature_transformer = get_model(
@@ -633,10 +703,10 @@ class StratifiedTransformerWrapperConfig(InstantiateConfig):
     depths: List[int] = field(default_factory=lambda: [2, 2, 6, 2])
     channels: List[int] = field(default_factory=lambda: [48, 96, 192, 384])
     num_heads: List[int] = field(default_factory=lambda: [3, 6, 12, 24])
-    window_size: int = 3  # TODO check what this does/means
+    window_size: int = 4  # the multiple of the grid size used as window size
     up_k: int = 3  # is not used
     k: int = 16  # kernel size in the maxpooling downsample layer
-    grid_size: float = 0.04 / 10  # TODO check what this does/means
+    grid_size: float = 0.04 / 10  # how big the grid is
     quant_size: float = 0.01 / 10# TODO check what this does/means
     rel_query: bool = True  # use a lookuptable for the relative position
     rel_key: bool = True
@@ -649,6 +719,9 @@ class StratifiedTransformerWrapperConfig(InstantiateConfig):
     stem_transformer: bool = True  # what kind of model to use. one is downsampling ones isnt
     patch_size: int = 1  # TODO check what this does/means
     max_num_neighbors: int = 34
+    # load_dir: str = "/data/vision/polina/projects/wmh/dhollidt/documents/Stratified-Transformer/weights/s3dis_model_best.pth"
+    load_dir: str = ""
+    """If using a pretrained model you can specify it here. The pipeline should load it. The pretrained weights will be overwritten by nesf weights if trained already."""
 
 
 class StratifiedTransformerWrapper(nn.Module):
@@ -657,14 +730,18 @@ class StratifiedTransformerWrapper(nn.Module):
         config: StratifiedTransformerWrapperConfig,
         input_size: int,
         activation: Union[Callable, None] = None,
-        pretrain: bool = False,
-        mask_ratio: float = 0.75,
     ):
         super().__init__()
         self.config = config
         self.activation = activation
 
+        print("grid_size", self.config.grid_size)
+        print("quant_size", self.config.quant_size)
+        print("window_size", self.config.window_size)
+        print("patch_size", self.config.patch_size)
+        
         patch_size = self.config.grid_size * self.config.patch_size
+        print("patch_size", patch_size)
         window_sizes = [patch_size * self.config.window_size * (2**i) for i in range(self.config.num_layers)]
         grid_sizes = [patch_size * (2**i) for i in range(self.config.num_layers)]
         quant_sizes = [self.config.quant_size * (2**i) for i in range(self.config.num_layers)]
@@ -697,6 +774,25 @@ class StratifiedTransformerWrapper(nn.Module):
             features_in_dim=input_size,
         )
 
+        if self.config.load_dir != "":
+            state_dict = torch.load(self.config.load_dir)["state_dict"]
+            
+            total_parameters_state_dict = sum(p.numel() for p in state_dict.values())
+            
+            # replace keys starting with module with model, _tables do not fit shapes
+            state_dict = {key.replace("module", "model"): value for key, value in state_dict.items() }
+            if input_size != 3:
+                state_dict = {key.replace("module", "model"): value for key, value in state_dict.items() if not key.endswith("_table")}
+
+            parameters_filtered = sum(p.numel() for p in state_dict.values())
+            
+            print("State dict has ", parameters_filtered, " parameters out of ", total_parameters_state_dict, " parameters")
+            
+            missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
+            print("Loaded feature transformer from pretrained checkpoint")
+            print("Feature Transformer missing keys", missing_keys)
+            print("Feature Transformer unexpected keys", unexpected_keys)
+                
     def forward(self, x: torch.Tensor, batch: dict):
         start_time = time.time()
 
@@ -722,19 +818,23 @@ class StratifiedTransformerWrapper(nn.Module):
             offsets = offsets.to(points.device)
             return points, features, offsets, batch, neighbor_idx
 
+        feature_shape = x.shape
         points, features, offsets, batch_s, neighbour_idx = batch_for_stratified_point_transformer(
             points=batch["points_xyz"], features=x
         )
         print("Coordinates range", torch.min(points, dim=0)[0].p, torch.max(points, dim=0)[0].p, torch.max(points, dim=0)[0].norm().item())
-        print("points shape", points, "features shape", features.shape, "x shape", x.shape)
-        print("dtypes", features.dtype, points.dtype, offsets.dtype, batch_s.dtype, neighbour_idx.dtype)
+        # print("points shape", points, "features shape", features.shape, "x shape", x.shape)
+        # print("dtypes", features.dtype, points.dtype, offsets.dtype, batch_s.dtype, neighbour_idx.dtype)
         x = self.model(features, points, offsets, batch_s, neighbour_idx)
 
         if self.activation is not None:
             x = self.activation(x)
 
+        x = x.reshape(*feature_shape[:-1], -1)
         CONSOLE.print("StratifiedTransformerWrapper forward time: ", time.time() - start_time)
         return x
 
     def get_out_dim(self) -> int:
         return self.config.channels[0]
+
+

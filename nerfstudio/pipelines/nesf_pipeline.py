@@ -8,6 +8,7 @@ from time import time
 from typing import Any, Dict, Optional, Type
 
 import numpy as np
+import plotly.figure_factory as ff
 import torch
 import torch.distributed as dist
 from PIL import Image
@@ -22,6 +23,7 @@ from rich.progress import (
 from torch.nn.parallel import DistributedDataParallel as DDP
 from typing_extensions import Literal
 
+import wandb
 from nerfstudio.configs import base_config as cfg
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConfig
 from nerfstudio.data.datamanagers.nesf_datamanager import (
@@ -37,6 +39,7 @@ from nerfstudio.pipelines.base_pipeline import (
     VanillaPipelineConfig,
 )
 from nerfstudio.utils import profiler, writer
+from nerfstudio.utils.nesf_utils import compute_mIoU
 
 CONSOLE = Console(width=120)
 
@@ -90,7 +93,6 @@ class NesfPipeline(Pipeline):
         self.datamanager: NesfDataManager = config.datamanager.setup(
             device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
         )
-        print("### NesfPipeline: datamanager setup done.")
         self.datamanager.to(device)
 
         # TODO(ethan): get rid of scene_bounds from the model
@@ -126,19 +128,7 @@ class NesfPipeline(Pipeline):
         """
         self.datamanager.models_to_cpu(step)
         ray_bundle, batch = self.datamanager.next_train(step)
-        
-        self.eval()
-        CONSOLE.print("### NesfPipeline: eval mode set.")
-        transformer_model_outputs_e = self.model(ray_bundle, batch)
-
-        metrics_dict_e = self.model.get_metrics_dict(transformer_model_outputs_e, batch)
-
-        # No need for camera opt param groups as the nerfs are assumed to be fixed already.
-
-        loss_dict_e = self.model.get_loss_dict(transformer_model_outputs_e, batch, metrics_dict_e)
-        self.train()
-        CONSOLE.print("### NesfPipeline: train mode set.")
-        
+       
         transformer_model_outputs = self.model(ray_bundle, batch)
 
         metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch)
@@ -196,6 +186,10 @@ class NesfPipeline(Pipeline):
         batch["model_idx"] = model_idx
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
+
+        # delte the confusion matrix key as it cant be logged but is needed for eval.py
+        metrics_dict.pop('confusion_unnormalized', None)
+        
         assert "image_idx" not in metrics_dict
         metrics_dict["image_idx"] = image_idx
         metrics_dict["model_idx"] = model_idx
@@ -205,7 +199,7 @@ class NesfPipeline(Pipeline):
         return metrics_dict, images_dict
 
     @profiler.time_function
-    def get_average_eval_image_metrics(self, step: Optional[int] = None, save_path: Optional[Path] = None, wandb=False):
+    def get_average_eval_image_metrics(self, step: Optional[int] = None, save_path: Optional[Path] = None, log_to_wandb=False):
         """Iterate over all the images in the eval dataset and get the average.
 
         Returns:
@@ -228,6 +222,7 @@ class NesfPipeline(Pipeline):
             else 999999999
         )
         step = 0
+        confusion_matrix = None
         with Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
@@ -263,34 +258,64 @@ class NesfPipeline(Pipeline):
                     metrics_dict[fps_str] = metrics_dict["num_rays_per_sec"] / (height * width)
                     metrics_dict["image_idx"] = batch["image_idx"]
                     metrics_dict["model_idx"] = batch["model_idx"]
+                    if "confusion_unnormalized" in metrics_dict:
+                        if confusion_matrix is None:
+                            confusion_matrix = metrics_dict["confusion_unnormalized"]
+                        else:
+                            confusion_matrix += metrics_dict["confusion_unnormalized"]
+                        
+                        metrics_dict.pop("confusion_unnormalized", None)
+                    
                     metrics_dict_list.append(metrics_dict)
-
-                    img = image_dict["img"]
-                    if wandb:
-                        writer.put_image("test_image", img, step=step)
+                    if log_to_wandb:
                         writer.put_dict("test_image", metrics_dict, step=step)
-                        writer.write_out_storage()
+                        
+                    
+                    if "img" in image_dict:
+                        img = image_dict["img"]
+                        if log_to_wandb:
+                            writer.put_image("test_image", img, step=step)
 
-                    img = img.cpu().numpy()
-                    if save_path is not None:
-                        file_path = save_path / f"{model_idx:03d}" / f"{batch['image_idx']:04d}.png"
-                        # create the directory if it does not exist
-                        if not file_path.parent.exists():
-                            file_path.parent.mkdir(parents=True)
-                        # save the image
-                        img_pil = Image.fromarray((img * 255).astype(np.uint8))
-                        img_pil.save(file_path)
+                        img = img.cpu().numpy()
+                        if save_path is not None:
+                            file_path = save_path / f"{model_idx:03d}" / f"{batch['image_idx']:04d}.png"
+                            # create the directory if it does not exist
+                            if not file_path.parent.exists():
+                                file_path.parent.mkdir(parents=True)
+                            # save the image
+                            img_pil = Image.fromarray((img * 255).astype(np.uint8))
+                            img_pil.save(file_path)
+                    # remove the oldest ray bundle we add so that we have more views in sampling process.        
                     ray_bundles.pop()
                     step += 1
+                    writer.write_out_storage()
                     progress.advance(task)
+                    
         # average the metrics list
         metrics_dict = {}
         for key in metrics_dict_list[0].keys():
-            if key == "image_idx" or key == "model_idx":
+            if key == "image_idx" or key == "model_idx" or key == "confusion_unnormalized":
                 continue
-            metrics_dict[key] = float(
-                torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list]))
-            )
+            else:
+                metrics_dict[key] = float(
+                    torch.mean(torch.tensor([metrics_dict[key] for metrics_dict in metrics_dict_list if not np.isnan(metrics_dict[key])]))
+                )
+                
+        if confusion_matrix is not None:
+            mIoU, mIoU_per_class = compute_mIoU(confusion_matrix)
+            metrics_dict["mIoU_total"] = mIoU
+            for i, mIoU_class in enumerate(mIoU_per_class):
+                metrics_dict[f"mIoU_total_{self.model.semantics.classes[i]}"] = mIoU_class
+                
+            if log_to_wandb:
+                # normalize confusion matrix
+                confusion_matrix = confusion_matrix / confusion_matrix.sum(axis=1, keepdims=True)
+                fig = ff.create_annotated_heatmap(confusion_matrix, x=self.model.semantics.classes, y=self.model.semantics.classes)
+                fig.update_layout(title="Confusion matrix", xaxis_title="Predicted", yaxis_title="Actual")
+                wandb.log(
+                    {"confusion_matrix_plotly_total": fig},
+                    step=wandb.run.step,
+                )
         self.train()
         return metrics_dict
 
@@ -300,9 +325,30 @@ class NesfPipeline(Pipeline):
         Args:
             loaded_state: pre-trained model state dict
         """
+        # model = typing.cast(NeuralSemanticFieldModel, self.model)
+        # if model.config.feature_transformer_model == "stratified":
+        #     load_dir = model.config.feature_transformer_stratified_config.load_dir
+        #     if load_dir != "":
+        #         missing_keys, unexpected_keys = self.model.feature_transformer.load_state_dict(torch.load(load_dir), strict = False)
+        #         print("Loaded feature transformer from pretrained checkpoint")
+        #         print("Feature Transformer missing keys", missing_keys)
+        #         print("Feature Transformer unexpected keys", unexpected_keys)
+                
+        # if model.config.feature_decoder_model == "stratified":
+        #     load_dir = model.config.feature_decoder_stratified_config.load_dir
+        #     if load_dir != "":
+        #         missing_keys, unexpected_keys = self.model.feature_decoder.load_state_dict(torch.load(load_dir), strict = False)
+        #         print("Loaded feature decoder from pretrained checkpoint")
+        #         print("Feature Decoder missing keys", missing_keys)
+        #         print("Feature Decoder unexpected keys", unexpected_keys)
+        
         # TODO questionable if this going to work
         state = {key.replace("module.", ""): value for key, value in loaded_state.items()}
-        self.load_state_dict(state, strict=False)
+        missing_keys, unexpected_keys = self.load_state_dict(state, strict=False)
+        
+        print("Loaded Nesf pipeline from checkpoint")
+        print("Missing keys", missing_keys)
+        print("Unexpected keys", unexpected_keys)
 
     def get_training_callbacks(
         self, training_callback_attributes: TrainingCallbackAttributes

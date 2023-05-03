@@ -13,6 +13,6 @@ ns-train depth-nerfacto \
 	--experiment-name $2 \
 	--output-dir $3 \
 	--timestamp "07_04_23" \
-	--viewer.websocket-port 7006  
+	--viewer.websocket-port 7008  
 	# --optimizers.proposal-networks.optimizer.weight-decay 0.0001 \
 
