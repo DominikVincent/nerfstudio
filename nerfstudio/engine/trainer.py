@@ -336,6 +336,7 @@ class Trainer:
                 # remove all keys which contain certain strings
                 strings_not_allowed = ["head", "fallback_model", "decoder", "mask_token", "learned_low_density_value"]
                 for key in list(pipeline_state_dict.keys()):
+                   
                     if any(string in key for string in strings_not_allowed):
                         del pipeline_state_dict[key]
 
@@ -348,6 +349,8 @@ class Trainer:
                 CONSOLE.print(f"done loading checkpoint from {load_path}")
         else:
             CONSOLE.print("No checkpoints to load, training from scratch")
+            
+        return
 
     @check_main_thread
     def save_checkpoint(self, step: int) -> None:
@@ -388,14 +391,25 @@ class Trainer:
         """
         self.optimizers.zero_grad_all()
         cpu_or_cuda_str = self.device.split(":")[0]
+        time1  = time.time()
         with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
             _, loss_dict, metrics_dict = self.pipeline.get_train_loss_dict(step=step)
             loss = functools.reduce(torch.add, loss_dict.values())
+        time2 = time.time()
         self.grad_scaler.scale(loss).backward()  # type: ignore
+        time3 = time.time()
         self.optimizers.optimizer_scaler_step_all(self.grad_scaler)
+        time4 = time.time()
         self.grad_scaler.update()
+        time5 = time.time()
         self.optimizers.scheduler_step_all(step)
-
+        time6 = time.time()
+        
+        print("get loss dict: ", time2 - time1)
+        print("backward: ", time3 - time2)
+        print("optimizer step: ", time4 - time3)
+        print("grad scaler update: ", time5 - time4)
+        print("scheduler step: ", time6 - time5)
         # Merging loss and metrics dict into a single output.
         return loss, loss_dict, metrics_dict
 

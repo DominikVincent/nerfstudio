@@ -160,7 +160,7 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
 
     if normals is not None:
         # normalize normals to length 0.01
-        normals = (normals / torch.norm(normals, dim=-1, keepdim=True)) * 0.003
+        normals = (normals / torch.norm(normals, dim=-1, keepdim=True)) * 0.005
         
     points = torch.empty((0, 3))
     colors = torch.empty((0, 3))

@@ -295,7 +295,8 @@ class WandbWriter(Writer):
     def __init__(self, log_dir: Path):
         if wandb.run is None:
             # wandb.init(project="mae-models-project", dir=str(log_dir), reinit=True)
-            wandb.init(project="nesf-models-project", dir=str(log_dir), reinit=True)
+            # wandb.init(project="nesf-models-project", dir=str(log_dir), reinit=True)
+            wandb.init(project="toybox-5-nesf", dir=str(log_dir), reinit=True)
         print(wandb.run)
         print("Run ID:", wandb.run.id)
         print("Run name:", wandb.run.name)

@@ -7,6 +7,7 @@ conda activate nerfstudio2
 
 ns-train depth-nerfacto \
 	--vis wandb \
+	--machine.num-gpus 2 \
 	--pipeline.datamanager.camera-optimizer.mode off \
 	--save-only-latest-checkpoint True \
 	--pipeline.model.predict-normals True \

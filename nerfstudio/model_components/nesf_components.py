@@ -3,11 +3,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Tuple, Type, Union, cast
 
+import numpy as np
 import torch
 import torch_points_kernels as tp
 from model.stratified_transformer import Stratified
 from pointnet.models.pointnet2_sem_seg import get_model
 from rich.console import Console
+from sklearn.linear_model import RANSACRegressor
 from torch import nn
 from torch.distributions import uniform
 from torch.nn import Parameter
@@ -47,12 +49,17 @@ class SceneSamplerConfig(InstantiateConfig):
     """The density threshold for which to not use the points for training. Points below will not be used"""
     z_value_threshold: float = -1
     """What is the minimum z value a point has to have"""
-    xy_distance_threshold: float = 1
+    xy_distance_threshold: float = 0.7
     """The maximal distance a point can have to z axis to be considered"""
     max_points: int = 2 << 17
     """The maximum number of points to use in one scene. If more are available after filtering, they will be randomly sampled"""
     get_normals: bool = True
+    ground_removal_mode: Literal["ransac", "min", "none"] = "none"
     """Get normals for the samples"""
+    ground_points_count: int = 500
+    """How many points to sample for the ground"""
+    ground_tolerance: float = 0.0075
+    """The distance a point has to have to the min z value to be considered non ground"""
 
 
 
@@ -63,8 +70,11 @@ class SceneSampler:
 
     def __init__(self, config: SceneSamplerConfig):
         self.config = config
+        
+        # maps scene to plane parameters (a, b, c, d)
+        self.plane_cash = {}
 
-    def sample_scene(self, ray_bundle: RayBundle, model: Model) -> Tuple[RaySamples, torch.Tensor, dict, torch.Tensor, dict]:
+    def sample_scene(self, ray_bundle: RayBundle, model: Model, model_idx: int) -> Tuple[RaySamples, torch.Tensor, dict, torch.Tensor, dict]:
         """_summary_
         Samples the model for a given ray bundle. Filters and batches points.
 
@@ -93,6 +103,7 @@ class SceneSampler:
                 ray_samples, _, _ = model.proposal_sampler(ray_bundle, density_fns=model.density_fns)
                 field_outputs = model.field(ray_samples, compute_normals=self.config.get_normals)
                 field_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY].detach()  # type: ignore
+                # reset to avoid memory wastage
                 model.field._density_before_activation = None
                 model.field._sample_locations = None
                 weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
@@ -106,15 +117,32 @@ class SceneSampler:
         original_fields_outputs = {}
         original_fields_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY].detach().clone()
         original_fields_outputs[FieldHeadNames.RGB] = field_outputs[FieldHeadNames.RGB].detach().clone()
-        if FieldHeadNames.NORMALS in field_outputs:
-            original_fields_outputs[FieldHeadNames.NORMALS] = field_outputs[FieldHeadNames.NORMALS].detach().clone()
+        if FieldHeadNames.PRED_NORMALS in field_outputs:
+            original_fields_outputs[FieldHeadNames.PRED_NORMALS] = field_outputs[FieldHeadNames.PRED_NORMALS].detach().clone()
+        else:
+            if FieldHeadNames.NORMALS in field_outputs:
+                original_fields_outputs[FieldHeadNames.NORMALS] = field_outputs[FieldHeadNames.NORMALS].detach().clone()
+
         original_fields_outputs["ray_samples"] = ray_samples
         
         density_mask = self.get_density_mask(field_outputs)
 
         pos_mask = self.get_pos_mask(ray_samples)
+        
 
         total_mask = density_mask & pos_mask
+        
+        # only compute ground points from filter points
+        if self.config.ground_removal_mode == "ransac":
+            non_ground_mask = self.get_non_ground_mask_ground_plane_fitting(ray_samples, total_mask, model_idx)
+        elif self.config.ground_removal_mode == "min":
+            non_ground_mask = self.get_non_ground_mask(ray_samples, total_mask)
+        elif self.config.ground_removal_mode == "none":
+            non_ground_mask = torch.ones_like(total_mask)
+        else:
+            raise NotImplementedError("Only ransac and min are supported for now")
+        
+        total_mask = total_mask & non_ground_mask
 
         final_mask = self.get_limit_mask(total_mask)
 
@@ -166,10 +194,63 @@ class SceneSampler:
     def get_pos_mask(self, ray_samples) -> TensorType["N_rays", "N_samples"]:
         # true for points to keep
         points = ray_samples.frustums.get_positions()
+        
+        # visualize_point_batch(points.cpu())
+        
         points_dense_mask = (points[..., 2] > self.config.z_value_threshold) & (
             torch.norm(points[..., :2], dim=-1) <= self.config.xy_distance_threshold
         )
         return points_dense_mask
+    
+    def get_non_ground_mask(self, ray_samples, mask: TensorType) -> TensorType["N_rays", "N_samples"]:
+        # returns true for non ground points
+        points = ray_samples.frustums.get_positions()
+        
+        filtered_points = points[mask]
+        
+        sorted_z = torch.sort(filtered_points[..., 2].flatten())[0]
+        ground_z = sorted_z[:self.config.ground_points_count].median()
+        
+        distances = points[..., 2] - ground_z
+        
+        # Create a mask for all points with a distance greater than the tolerance
+        mask = distances > self.config.ground_tolerance
+        
+        return mask
+    
+    def get_non_ground_mask_ground_plane_fitting(self, ray_samples, mask: TensorType, scene_idx: int) -> TensorType["N_rays", "N_samples"]:
+        # returns true for non ground points
+        time_start = time.time()
+        points = ray_samples.frustums.get_positions()
+        
+        
+        if scene_idx in self.plane_cash:
+            a, b, c, d = self.plane_cash[scene_idx]
+        else:
+            filtered_points = points[mask]
+            # visualize_point_batch(points.cpu().unsqueeze(0))
+            
+        
+            model = RANSACRegressor()
+            model.fit(filtered_points[..., :2].cpu(), filtered_points[..., 2].cpu())
+            
+            # Extract the parameters of the fitted plane
+            # TODO check that c is always -1
+            a, b, c, d = model.estimator_.coef_[0], model.estimator_.coef_[1], -1, model.estimator_.intercept_
+            self.plane_cash[scene_idx] = (a, b, c, d)
+        
+        if c < 0:
+            a, b, c, d = -a, -b, -c, -d
+        
+        # Calculate the distance of each point from the fitted plane
+        distances = (a * points[..., 0] + b * points[..., 1] + c * points[..., 2] + d) / np.sqrt(a**2 + b**2 + c**2)
+        
+        # Create a mask for all points with a distance greater than the threshold
+        mask = distances > self.config.ground_tolerance
+        
+        time_end = time.time()
+        print("Ground plane fitting took: ", time_end - time_start, " seconds")
+        return mask
 
     def get_limit_mask(self, mask):
         num_true = int(torch.sum(mask).item())
@@ -247,8 +328,11 @@ class Masker(nn.Module):
     def forward(self, x: torch.Tensor, batch: dict):
         self.mask(x, batch)
         
-    def mask(self, x: torch.Tensor, batch: dict):
+    def mask(self, x: torch.Tensor, batch: dict) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
         """Mask a certain amount of points in the batch for the encoder. It will filter out the mask points"""
+        if self.config.mask_ratio == 0:
+            return x, torch.empty((1,)), torch.empty((1,)), {}
+        
         if self.config.mode == "random":
             return self.random_mask(x, batch)
         else: 
@@ -257,7 +341,10 @@ class Masker(nn.Module):
     
     def unmask(self, x: torch.Tensor, batch: dict, ids_restore: torch.Tensor):
         """Unmask the points in the batch for the decoder. It will filter out the mask points"""
-        # TODO also unmask the batch, i.e. unmask the points
+        
+        if self.config.mask_ratio == 0:
+            return x, batch
+        
         mask_tokens = self.mask_token.repeat(x.shape[0], ids_restore.shape[1] - x.shape[1], 1)
         
         # add position encoding to the mask tokens
@@ -490,8 +577,8 @@ class FeatureGeneratorTorch(nn.Module):
 
         
         assert ((not self.config.use_normal_encoding) or FieldHeadNames.NORMALS in field_outputs)
-        if FieldHeadNames.NORMALS in field_outputs:
-            normals = field_outputs[FieldHeadNames.NORMALS]
+        if FieldHeadNames.NORMALS in field_outputs or FieldHeadNames.PRED_NORMALS in field_outputs:
+            normals = field_outputs[FieldHeadNames.PRED_NORMALS] if FieldHeadNames.PRED_NORMALS in field_outputs else field_outputs[FieldHeadNames.NORMALS]
             if self.config.rot_augmentation:
                 # TODO consider turning that off if not self.training()
                 normals = torch.matmul(normals, rot_matrix)
@@ -529,7 +616,9 @@ class FeatureGeneratorTorch(nn.Module):
         # positions_normalized = (positions_normalized - mean) / dist
         if self.config.visualize_point_batch:
             if "normals_unnormalized" in transform_batch:
-                visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals_unnormalized"])
+                # visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals_unnormalized"])
+                visualize_point_batch(transform_batch["points_xyz"])
+                
             else:
                 visualize_point_batch(transform_batch["points_xyz"])
             a = input("press enter to continue...")
@@ -822,7 +911,7 @@ class StratifiedTransformerWrapper(nn.Module):
         points, features, offsets, batch_s, neighbour_idx = batch_for_stratified_point_transformer(
             points=batch["points_xyz"], features=x
         )
-        print("Coordinates range", torch.min(points, dim=0)[0].p, torch.max(points, dim=0)[0].p, torch.max(points, dim=0)[0].norm().item())
+        # print("Coordinates range", torch.min(points, dim=0)[0].p, torch.max(points, dim=0)[0].p, torch.max(points, dim=0)[0].norm().item())
         # print("points shape", points, "features shape", features.shape, "x shape", x.shape)
         # print("dtypes", features.dtype, points.dtype, offsets.dtype, batch_s.dtype, neighbour_idx.dtype)
         x = self.model(features, points, offsets, batch_s, neighbour_idx)

@@ -27,7 +27,11 @@ from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttrib
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.model_components.losses import pred_normal_loss
 from nerfstudio.model_components.nesf_components import *
-from nerfstudio.model_components.renderers import RGBRenderer, SemanticRenderer
+from nerfstudio.model_components.renderers import (
+    NormalsRenderer,
+    RGBRenderer,
+    SemanticRenderer,
+)
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import profiler
 from nerfstudio.utils.nesf_utils import *
@@ -97,6 +101,8 @@ class NeuralSemanticFieldConfig(ModelConfig):
     batch_size: int = 1536
 
     debug_show_image: bool = False
+    """Show the generated image."""
+    debug_show_final_point_cloud: bool = True
     """Show the generated image."""
     log_confusion_to_wandb: bool = True
     plot_confusion: bool = False
@@ -236,7 +242,7 @@ class NeuralSemanticFieldModel(Model):
             self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
         elif self.config.mode == "normals":
             # No rendering if we predict normals
-            pass
+            self.renderer_normals = NormalsRenderer()
         else:
             raise ValueError(f"Unknown mode {self.config.mode}")
 
@@ -293,19 +299,22 @@ class NeuralSemanticFieldModel(Model):
         model: Model = self.get_model(batch)
 
         # all but density mask are by filtered dimension
+        time1 = time.time()
         (
             ray_samples,
             weights,
             field_outputs_raw,
             density_mask,
             original_fields_outputs,
-        ) = self.scene_sampler.sample_scene(ray_bundle, model)
-
+        ) = self.scene_sampler.sample_scene(ray_bundle, model, batch["model_idx"])
+        print("ray bundle: ", ray_bundle.shape)
+        time2 = time.time()
         # potentially batch up and infuse field outputs with random points
         field_outputs_raw, transform_batch = self.batching(ray_samples, field_outputs_raw)
-
+        time3 = time.time()
         # TODO return the transformed points
         outs, transform_batch = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
+        print("outs: ", outs.shape)
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
@@ -313,7 +322,13 @@ class NeuralSemanticFieldModel(Model):
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
-
+        time4 = time.time()
+        
+        print("sampling: ", time2 - time1)
+        print("batching: ", time3 - time2)
+        print("feature model: ", time4 - time3)
+        
+        
         outputs = {}
         if self.config.pretrain:
             # remove all the masked points from outs. The masks tells which points got removed.
@@ -352,9 +367,16 @@ class NeuralSemanticFieldModel(Model):
 
             # field_outputs = outs
         else:
+            print("outs: ", outs.shape)
             field_encodings = self.feature_transformer(outs, batch=transform_batch)
+            time5 = time.time()
             field_encodings = self.decoder(field_encodings)
+            time6 = time.time()
             field_outputs = self.head(field_encodings)
+            time7 = time.time()
+            print("feature transformer: ", time5 - time4)
+            print("decoder: ", time6 - time5)
+            print("head: ", time7 - time6)
 
         # unbatch the data
         if self.config.batching_mode != "off":
@@ -456,13 +478,41 @@ class NeuralSemanticFieldModel(Model):
                         step=wandb.run.step,
                     )
         elif self.config.mode == "normals":
+            
+                
+            time7=time.time()
             # normalize to unit vecctors
             field_outputs = field_outputs / torch.norm(field_outputs, dim=-1, keepdim=True)
             
             outputs["normals_pred"] = field_outputs
-            outputs["normals_gt"] = field_outputs_raw[FieldHeadNames.NORMALS]
+            outputs["normals_gt"] = field_outputs_raw[FieldHeadNames.PRED_NORMALS] if FieldHeadNames.PRED_NORMALS in field_outputs_raw else field_outputs_raw[FieldHeadNames.NORMALS] 
+            time8 = time.time()
+            
+            # for visualization
+            normals_all = torch.empty((*density_mask.shape, 3), device=self.device)
+            weights_all = torch.zeros((*density_mask.shape, 1), device=self.device)  # 64, 48, 6
+
+            normals_all[density_mask] = field_outputs
+            weights_all[density_mask] = weights
+
+            normals_all[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value)
+            weights_all[~density_mask] = 0.00001
+            
+            time9 = time.time()
+            
+            original_normals = original_fields_outputs[FieldHeadNames.PRED_NORMALS] if FieldHeadNames.PRED_NORMALS in original_fields_outputs else original_fields_outputs[FieldHeadNames.NORMALS]
+            outputs["normals_all_pred"] = self.renderer_normals(normals_all, weights=weights_all)
+            outputs["normals_all_gt"] = self.renderer_normals(original_normals, weights=weights_all)
+            time10 = time.time()
+            
+            print("saving normals from fieldoutputs", time8-time7)
+            print("Creating weights and normals all", time9-time8)
+            print("Rendering normals all", time10-time9)
         else:
             raise ValueError("Unknown mode: " + self.config.mode)
+        
+        torch.cuda.empty_cache()
+
         return outputs
 
     def forward(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None) -> Dict[str, torch.Tensor]:
@@ -525,7 +575,7 @@ class NeuralSemanticFieldModel(Model):
                 metrics_dict["density_mae_" + str(batch["model_idx"])] = metrics_dict["density_mae"]
         elif self.config.mode == "normals":
             
-            metrics_dict["dot"] = (1.0 - torch.sum(outputs["normals_gt"] * outputs["normals_pred"], dim=-1)).sum(dim=-1)
+            metrics_dict["dot"] = (1.0 - torch.sum(outputs["normals_gt"] * outputs["normals_pred"], dim=-1)).mean(dim=-1)
             metrics_dict["dot_" + str(batch["model_idx"])] = metrics_dict["dot"]
             
         return metrics_dict
@@ -567,8 +617,6 @@ class NeuralSemanticFieldModel(Model):
             camera_ray_bundle: ray bundle to calculate outputs over
             :param batch: additional information of the batch here it includes at least the model
         """
-        if self.config.mode == "normals":
-            return {}
         if isinstance(camera_ray_bundle, list):
             images = len(camera_ray_bundle)
             camera_ray_bundle = stack_ray_bundles(camera_ray_bundle)
@@ -630,7 +678,12 @@ class NeuralSemanticFieldModel(Model):
                 # TODO: handle lists of tensors as well
                 continue
             if self.config.space_partitioning != "row_wise":
-                unordered_output_tensor = torch.cat(outputs_list)
+                if  output_name == "normals_pred" or output_name == "normals_gt":
+                    continue
+                # TODO maybe fix later
+                    unordered_output_tensor = torch.cat(outputs_list, dim=1).squeeze(0)
+                else:
+                    unordered_output_tensor = torch.cat(outputs_list)
                 ordered_output_tensor = unordered_output_tensor[reversed_ray_order]
             else:
                 ordered_output_tensor = torch.cat(outputs_list)  # type: ignore
@@ -706,6 +759,11 @@ class NeuralSemanticFieldModel(Model):
                     {"confusion_matrix": fig},
                     step=wandb.run.step,
                 )
+        elif self.config.mode == "normals":
+            if "normals_all_pred" in outputs:
+                images_dict["normals_all_pred"] = (outputs["normals_all_pred"] + 1.0) / 2.0
+            if "normals_all_gt" in outputs:
+                images_dict["normals_all_gt"] = (outputs["normals_all_gt"] + 1.0) / 2.0
         # plotly show image
         if self.config.debug_show_image:
             fig = px.imshow(images_dict["img"].cpu().numpy())

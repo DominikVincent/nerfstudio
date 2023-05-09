@@ -228,6 +228,9 @@ class Nesf(DataParser):
             CONSOLE.print("Returning model from cache")
             return self.model_cache[str(load_dir) + str(load_step)]
 
+        # hack to figure out if model should predict normals
+        pred_normals = "normal" in str(load_dir)
+        
         pipeline = VanillaPipelineConfig(
             datamanager=VanillaDataManagerConfig(
                 dataparser=NerfstudioDataParserConfig(data=data_dir),
@@ -238,7 +241,7 @@ class Nesf(DataParser):
                 ),
             ),
             model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15,
-                                    #   predict_normals=True
+                                      predict_normals=pred_normals
                                       ),
         )
         pipeline.datamanager.dataparser = cast(NerfstudioDataParserConfig, pipeline.datamanager.dataparser)

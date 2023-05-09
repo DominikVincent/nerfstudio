@@ -250,6 +250,13 @@ class NerfactoModel(Model):
             "accumulation": accumulation,
             "depth": depth,
         }
+        
+        # from nerfstudio.utils.nesf_utils import visualize_point_batch
+        # density_mask = (field_outputs[FieldHeadNames.DENSITY] > 0.5).squeeze(-1)
+        # positions = ray_samples.frustums.get_positions()[density_mask].cpu().reshape(-1, 3)[:8192,:]
+        # normals = field_outputs[FieldHeadNames.PRED_NORMALS][density_mask].clone().detach().cpu().reshape(-1, 3)[:8192,:]
+        # visualize_point_batch(positions, ids_shuffle=None, normals=normals)
+        
 
         if self.config.predict_normals:
             outputs["normals"] = self.renderer_normals(normals=field_outputs[FieldHeadNames.NORMALS], weights=weights)

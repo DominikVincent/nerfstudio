@@ -5,7 +5,8 @@ conda activate nerfstudio2
 
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_1.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_10.json"
-DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
+# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
+DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_normal_nesf_train_100.json"
 
 # RAYS=131072
 # RAYS=65536
@@ -29,11 +30,12 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
 	--pipeline.model.sampler.surface-sampling True \
-	--pipeline.model.sampler.samples-per-ray 10 \
+	--pipeline.model.sampler.samples-per-ray 48 \
 	--pipeline.model.batching-mode "sliced" \
 	--pipeline.model.batch_size 2048 \
 	--pipeline.model.mode normals \
 	--pipeline.model.pretrain True  \
+	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.feature-generator-config.use-rgb True \
 	--pipeline.model.feature-generator-config.use-dir-encoding True \
 	--pipeline.model.feature-generator-config.use-pos-encoding True \
@@ -56,7 +58,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature_decoder_custom_config.dim-feed-forward 128 \
 	--pipeline.model.feature_decoder_custom_config.dropout-rate 0.2 \
 	--pipeline.model.feature_decoder_custom_config.feature-dim 128 \
-	--pipeline.model.masker_config.mask_ratio 0.5 \
+	--pipeline.model.masker_config.mask_ratio 0 \
 	--pipeline.model.rgb-prediction "direct" \
 	nesf-data \
 	--data-config $DATA_CONFIG 

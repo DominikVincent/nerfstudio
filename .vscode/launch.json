@@ -158,6 +158,19 @@
      }
   },
   {
+    "name": "ns-train from config",
+    "type": "python",
+    "request": "launch",
+    "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/train.py",
+    "args": ["nesf", 
+    "--load_config", 
+    "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-05-03_205522/auto_semantic_config2.yml"
+    // "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/toybox-5-depth-normal-models/98/depth-nerfacto/07_04_23/auto_semantic_config.yml"
+    ],
+    "console": "integratedTerminal",
+    "justMyCode": false
+  }
+  {
     "name": "eval runs",
     "type": "python",
     "request": "launch",

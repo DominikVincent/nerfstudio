@@ -24,9 +24,9 @@ parser.add_argument(
 parser.add_argument("--partition", help="Which slurm partition to use", type=str, default="QRTX5000")
 parser.add_argument(
     "--eval_config",
-    help="The nesf eval config",
+    help="The nesf eval dataset file",
     type=str,
-    default="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_test_10.json",
+    default="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_normal_nesf_train_10.json",
 )
 parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/mae-models-project")
 

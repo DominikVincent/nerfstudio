@@ -96,7 +96,6 @@ class CacheDataloader(DataLoader):
         """Returns a list of batches from the dataset attribute."""
 
         indices = random.sample(range(len(self.dataset)), k=self.num_images_to_sample_from)
-        print("indices", indices)
         batch_list = []
         results = []
 

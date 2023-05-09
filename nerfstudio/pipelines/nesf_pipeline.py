@@ -127,15 +127,28 @@ class NesfPipeline(Pipeline):
             step: current iteration step to update sampler if using DDP (distributed)
         """
         self.datamanager.models_to_cpu(step)
+        time1 = time()
         ray_bundle, batch = self.datamanager.next_train(step)
+        time2 = time()
        
         transformer_model_outputs = self.model(ray_bundle, batch)
 
+        time3 = time()
+
         metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch)
+        
+        time4 = time()
 
         # No need for camera opt param groups as the nerfs are assumed to be fixed already.
 
         loss_dict = self.model.get_loss_dict(transformer_model_outputs, batch, metrics_dict)
+        
+        time5 = time()
+        
+        print(f"Time to get next train batch: {time2 - time1}")
+        print(f"Time to run model forward: {time3 - time2}")
+        print(f"Time to get metrics dict: {time4 - time3}")
+        print(f"Time to get loss dict: {time5 - time4}")
 
         return transformer_model_outputs, loss_dict, metrics_dict
 

@@ -1,10 +1,10 @@
 #!/bin/bash
 
-set -x  # Enable debug mode to print each command
+# set -x  # Enable debug mode to print each command
 
 # Set the path to the directory containing the folders
 # directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf"
-directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/toybox-5/"
+directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/toybox-5"
 
 # Set ouput directory
 # output_dir="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/klever_depth_normal_models_nesf"
@@ -19,20 +19,35 @@ fi
 script_path="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/train_scripts/train.bash"
 
 # Set the number of folders to process
-num_folders=300
+num_folders=1
+start_folder=278
+
+folder_list=($(ls -1 "$directory_path" | grep -E "^[0-9]+$" | sort -n))
 
 # Iterate through each folder in the directory
 count=0
-for folder in $directory_path/*; do
+dir_counter=0
+for folder in "${folder_list[@]}"; do
+  folder_path="$directory_path/$folder"
   if [ $count -eq $num_folders ]; then
     break
   fi
+  ((dir_counter++))
+
+
+  # Skip folders before the start folder
+  if [ $dir_counter -le $start_folder ]; then
+    continue
+  fi
 
   # get the folder name
-  folder_name=$(basename "$folder")
-  if [ -d "$folder" ] && [ "$(ls -A "$folder")" ]; then
+  echo "$folder_path"
+
+  folder_name=$(basename "$folder_path")
+  if [ -d "$folder_path" ] && [ "$(ls -A "$folder_path")" ]; then
     # Execute the script with the folder name as an argument
-    $script_path "$folder" "$folder_name" "$output_dir"
+    $script_path "$folder_path" "$folder_name" "$output_dir"
+    # echo "$folder_path"
     ((count++))
   fi
 done
