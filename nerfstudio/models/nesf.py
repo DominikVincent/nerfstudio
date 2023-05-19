@@ -296,6 +296,18 @@ class NeuralSemanticFieldModel(Model):
         # TODO query NeRF
         # TODO do feature conversion + MLP
         # TODO do semantic rendering
+        # def get_fake_output(size: int):
+        #     # gt_value = torch.zeros(size, self.learned_low_density_value.shape[0]).to(self.learned_low_density_value.device)
+        #     pred_value = self.learned_low_density_value.repeat(size, 1)
+        #     outputs = {
+        #         "rgb": pred_value,
+        #         "density": pred_value,
+        #         "semantics": pred_value,
+        #     }
+        #     return outputs
+        # outputs = get_fake_output(ray_bundle.shape[0])
+        # return outputs
+        
         model: Model = self.get_model(batch)
 
         # all but density mask are by filtered dimension
@@ -307,14 +319,15 @@ class NeuralSemanticFieldModel(Model):
             density_mask,
             original_fields_outputs,
         ) = self.scene_sampler.sample_scene(ray_bundle, model, batch["model_idx"])
-        print("ray bundle: ", ray_bundle.shape)
+        all_samples_count = density_mask.shape[0]*density_mask.shape[1]
+        CONSOLE.print("Ray samples used", weights.shape[0], "out of", all_samples_count, "samples")
+        
         time2 = time.time()
         # potentially batch up and infuse field outputs with random points
         field_outputs_raw, transform_batch = self.batching(ray_samples, field_outputs_raw)
         time3 = time.time()
         # TODO return the transformed points
         outs, transform_batch = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
-        print("outs: ", outs.shape)
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
@@ -324,10 +337,9 @@ class NeuralSemanticFieldModel(Model):
         assert not torch.isinf(outs).any()
         time4 = time.time()
         
-        print("sampling: ", time2 - time1)
-        print("batching: ", time3 - time2)
-        print("feature model: ", time4 - time3)
-        
+        CONSOLE.print("sampling: ", time2 - time1)
+        CONSOLE.print("batching: ", time3 - time2)
+        CONSOLE.print("feature model: ", time4 - time3)
         
         outputs = {}
         if self.config.pretrain:
@@ -367,16 +379,16 @@ class NeuralSemanticFieldModel(Model):
 
             # field_outputs = outs
         else:
-            print("outs: ", outs.shape)
+            # print("outs: ", outs.shape)
             field_encodings = self.feature_transformer(outs, batch=transform_batch)
             time5 = time.time()
             field_encodings = self.decoder(field_encodings)
             time6 = time.time()
             field_outputs = self.head(field_encodings)
             time7 = time.time()
-            print("feature transformer: ", time5 - time4)
-            print("decoder: ", time6 - time5)
-            print("head: ", time7 - time6)
+            CONSOLE.print("feature transformer: ", time5 - time4)
+            CONSOLE.print("decoder: ", time6 - time5)
+            CONSOLE.print("head: ", time7 - time6)
 
         # unbatch the data
         if self.config.batching_mode != "off":
@@ -414,22 +426,22 @@ class NeuralSemanticFieldModel(Model):
             semantics = torch.zeros((*density_mask.shape, len(self.semantics.classes)), device=self.device)  # 64, 48, 6
             weights_all = torch.zeros((*density_mask.shape, 1), device=self.device)  # 64, 48, 6
 
-            print(semantics.numel() * semantics.element_size() / 1024**2)
+            # print(semantics.numel() * semantics.element_size() / 1024**2)
 
-            print(
-                "semantics: ",
-                semantics.shape,
-                " field_outputs: ",
-                field_outputs.shape,
-                " density_mask: ",
-                density_mask.shape,
-                "density_mask sum: ",
-                density_mask.sum(),
-                " density_mask: ",
-                density_mask,
-                " field_outputs: ",
-                field_outputs.shape,
-            )
+            # print(
+            #     "semantics: ",
+            #     semantics.shape,
+            #     " field_outputs: ",
+            #     field_outputs.shape,
+            #     " density_mask: ",
+            #     density_mask.shape,
+            #     "density_mask sum: ",
+            #     density_mask.sum(),
+            #     " density_mask: ",
+            #     density_mask,
+            #     " field_outputs: ",
+            #     field_outputs.shape,
+            # )
             semantics[density_mask] = field_outputs  # 1, num_dense_samples, 6
             weights_all[density_mask] = weights
 
@@ -449,7 +461,7 @@ class NeuralSemanticFieldModel(Model):
             outputs["rgb"] = semantics_colormap
 
             # print the count of the different labels
-            CONSOLE.print("Label counts:", torch.bincount(semantic_labels.flatten()))
+            # CONSOLE.print("Label counts:", torch.bincount(semantic_labels.flatten()))
         elif self.config.mode == "density":
             density = torch.empty((*density_mask.shape, 1), device=self.device)
             density[density_mask] = field_outputs
@@ -511,6 +523,7 @@ class NeuralSemanticFieldModel(Model):
         else:
             raise ValueError("Unknown mode: " + self.config.mode)
         
+        outputs["density_mask"] = density_mask
         torch.cuda.empty_cache()
 
         return outputs
@@ -735,6 +748,25 @@ class NeuralSemanticFieldModel(Model):
             images_dict["img"] = combined_semantics
             images_dict["semantics_colormap"] = outputs["semantics_colormap"]
             images_dict["rgb_image"] = batch["image"]
+            
+            # compute uncertainty entropy
+            def compute_entropy(tensor):
+                # Reshape tensor to [B, 256*256, C]
+                tensor = tensor.view(tensor.size(0), -1, tensor.size(-1))
+                
+                # Compute softmax probabilities
+                probabilities = F.softmax(tensor, dim=-1)
+                
+                # Compute entropy
+                entropy = -torch.sum(probabilities * torch.log2(probabilities + 1e-10), dim=-1)
+                
+                # Normalize entropy to [0, 1]
+                max_entropy = torch.log2(torch.tensor(tensor.size(-1)).float())
+                normalized_entropy = entropy / max_entropy
+                
+                return normalized_entropy.unsqueeze(-1)
+
+            images_dict["entropy"] = compute_entropy(outputs["semantics"])
 
             outs = outputs["semantics"].reshape(-1, outputs["semantics"].shape[-1]).to(self.device)
             gt = batch["semantics"][..., 0].long().reshape(-1)
@@ -745,6 +777,7 @@ class NeuralSemanticFieldModel(Model):
             metrics_dict["confusion_unnormalized"] = confusion_non_normalized
             for i, iou in enumerate(per_class_iou):
                 metrics_dict["iou_" + self.semantics.classes[i]] = iou
+                
 
             confusion = self.confusion(torch.argmax(outs, dim=-1), gt).detach().cpu().numpy()
             if self.config.plot_confusion:
@@ -768,6 +801,9 @@ class NeuralSemanticFieldModel(Model):
         if self.config.debug_show_image:
             fig = px.imshow(images_dict["img"].cpu().numpy())
             fig.show()
+        
+        if "density_mask" in outputs:
+            images_dict["sample_mask"] = torch.mean(outputs["density_mask"].float(), dim=-1, keepdim=True)
 
         return metrics_dict, images_dict
 

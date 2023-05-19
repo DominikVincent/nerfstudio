@@ -45,7 +45,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-generator-config.out-density-dim 8 \
 	--pipeline.model.feature-generator-config.use-normal-encoding True \
 	--pipeline.model.feature-generator-config.rot-augmentation True \
-	--pipeline.model.space-partitioning "evenly" \
+	--pipeline.model.space-partitioning "random" \
 	--pipeline.model.feature-transformer-model "custom" \
 	--pipeline.model.feature-transformer-custom-config.num-layers 6 \
 	--pipeline.model.feature-transformer-custom-config.num-heads 8 \

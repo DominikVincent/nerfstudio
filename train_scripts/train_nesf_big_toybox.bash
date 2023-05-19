@@ -10,7 +10,7 @@ conda activate nerfstudio2
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_100_270.json"
 DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_500_270.json"
 
-
+# RAYS=24576
 RAYS=16384
 # RAYS=8192
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
@@ -22,20 +22,20 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
     --steps-per-save 5000 \
     --max-num-iterations 5000000 \
 	--pipeline.datamanager.steps-per-model 1 \
-	--pipeline.datamanager.train-num-images-to-sample-from 4 \
+	--pipeline.datamanager.train-num-images-to-sample-from 8 \
 	--pipeline.datamanager.train-num-times-to-repeat-images 4 \
-	--pipeline.datamanager.eval-num-images-to-sample-from 4 \
+	--pipeline.datamanager.eval-num-images-to-sample-from 8 \
 	--pipeline.datamanager.eval-num-times-to-repeat-images 4 \
 	--pipeline.datamanager.train-num-rays-per-batch $RAYS \
 	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
 	--pipeline.model.sampler.surface-sampling True \
-	--pipeline.model.sampler.samples-per-ray 10 \
+	--pipeline.model.sampler.samples-per-ray 16 \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500 \
-	--pipeline.model.sampler.ground-tolerance 0.0075 \
-	--pipeline.model.batching-mode "sliced" \
-	--pipeline.model.batch_size 4096 \
+	--pipeline.model.sampler.ground-tolerance 0.01 \
+	--pipeline.model.batching-mode "off" \
+	--pipeline.model.batch_size 3072 \
 	--pipeline.model.mode semantics \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
@@ -45,10 +45,10 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-generator-config.out-rgb-dim 16 \
 	--pipeline.model.feature-generator-config.pos-encoder "sin" \
 	--pipeline.model.feature-generator-config.out-density-dim 8 \
-	--pipeline.model.feature-generator-config.use-normal-encoding True \
+	--pipeline.model.feature-generator-config.use-normal-encoding False \
 	--pipeline.model.feature-generator-config.rot-augmentation True \
 	--pipeline.model.feature-generator-config.visualize-point-batch False \
-	--pipeline.model.space-partitioning "evenly" \
+	--pipeline.model.space-partitioning "random" \
 	--pipeline.model.feature-transformer-model "custom" \
 	--pipeline.model.feature-transformer-custom-config.num-layers 6 \
 	--pipeline.model.feature-transformer-custom-config.num-heads 8 \

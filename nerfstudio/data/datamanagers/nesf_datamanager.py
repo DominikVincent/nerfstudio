@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import threading
+import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 import numpy as np
+import plotly.express as px
 import torch
 from rich.console import Console
 from torch.nn import Parameter
@@ -74,10 +77,13 @@ class NesfDataManagerConfig(InstantiateConfig):
     """The scale factor for scaling spatial data such as images, mask, semantics
     along with relevant information about camera intrinsics
     """
-    steps_per_model: int = 6
+    steps_per_model: int = 1
     """Number of steps one model is queried before the next model is queried. The models are taken sequentially."""
-
-
+    use_sample_mask: bool = False
+    """If yes it will generate a sampling mask based on the semantic map and only sample non ground pixels plus some randomly sampled ground pixels"""
+    sample_mask_ground_percentage: float = 1.0
+    """The number of ground pixels to sample in the sampling mask randomly set to true. 1.0 means all pixels uniformly."""
+    
 class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     """Basic stored data manager implementation.
 
@@ -166,9 +172,10 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
                 num_images_to_sample_from=self.config.train_num_images_to_sample_from,
                 num_times_to_repeat_images=self.config.train_num_times_to_repeat_images,
                 device=self.device,
-                num_workers=self.world_size * 4,
+                num_workers=1,
                 pin_memory=True,
                 collate_fn=self.config.collate_fn,
+                prefetch_factor=1
             )
             for train_dataset in self.train_datasets
         ]
@@ -199,6 +206,8 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             )
             for train_dataset, train_camera_optimizer in zip(self.train_datasets, self.train_camera_optimizers)
         ]
+        
+        return
 
     def setup_eval(self):
         """Sets up the data loader for evaluation"""
@@ -269,24 +278,85 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             # print(i, model_idx, dataset.model.device)
             if i == model_idx:
                 continue
+            
             dataset = cast(NesfItemDataset, dataset)
-            dataset.model.to("cpu")
+            if dataset.model.device.type != "cpu": 
+                dataset.model.to("cpu", non_blocking=True)
+            
+            
+    def move_model_to_cpu(self, dataset):
+        dataset.model.to("cpu", non_blocking=True)
+        
+    def models_to_cpu_threading(self, step):
+        """Moves all models who shouldn't be active to CPU."""
+        model_idx = self.step_to_dataset(step)
+        for i, dataset in enumerate(self.train_datasets):
+            if i != model_idx:
+                dataset = cast(NesfItemDataset, dataset)
+                thread = threading.Thread(target=self.move_model_to_cpu, args=(dataset,))
+                thread.start()
+
 
     @profiler.time_function
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         self.train_count += 1
         model_idx = self.step_to_dataset(step)
-        image_batch = next(self.iter_train_image_dataloaders[model_idx])
+        time1 = time.time()
+        image_batch: dict = next(self.iter_train_image_dataloaders[model_idx])
+        time2 = time.time()
+        if self.config.use_sample_mask:
+            semantic_mask = image_batch["semantics"] # [N, H, W]
+            # count the number of pixels per class
+            # pixels_per_class = torch.bincount(semantic_mask.flatten(), minlength=13)
+            # CONSOLE.print("Class counts percentage: ", (pixels_per_class/semantic_mask.numel()).p)
+            
+            mask = semantic_mask >= 1
+            
+            # add random noise to the mask
+            total_pixels = mask.numel()
+            num_true = int(total_pixels * self.config.sample_mask_ground_percentage)
+
+            # Create a flattened tensor of shape (total_pixels,)
+            flat_mask = torch.zeros(total_pixels, dtype=torch.bool)
+
+            # Randomly select indices to set as True
+            indices = torch.randperm(total_pixels)[:num_true]
+            flat_mask[indices] = True
+
+            # Reshape the flattened tensor back to the desired shape
+            mask_salt_and_pepper = flat_mask.reshape(mask.shape)
+            
+            # mask_background = mask_salt_and_pepper & (semantic_mask == 0)
+            # print("mask_background ratio: ", (mask_background.sum() / mask_background[0].numel()).item())
+
+            mask = mask | mask_salt_and_pepper
+            
+            image_batch["mask"] = mask
+            
+            # mask_d = mask.detach().cpu().numpy()[0].squeeze()
+            # fig = px.imshow(mask_d)
+            # fig.show()
+            # fig = px.imshow(image_batch["image"][0])
+            # fig.show()
+            
+            
         assert self.train_pixel_samplers[model_idx] is not None
         batch = self.train_pixel_samplers[model_idx].sample(image_batch)
+        time3 = time.time()
         ray_indices = batch["indices"]
         batch["model_idx"] = model_idx
         batch["model"] = image_batch["model"][0]
         ray_bundle = self.train_ray_generators[model_idx](ray_indices)
+        time4 = time.time()
         assert str(batch["image"].device) == "cpu"
         assert str(batch["semantics"].device) == "cpu"
         assert str(batch["indices"].device) == "cpu"
+        
+        CONSOLE.print(f"Next Train - get_batch: {time2 - time1}")
+        CONSOLE.print(f"Next Train - sample pixels: {time3 - time2}")
+        CONSOLE.print(f"Next Train - ray generation: {time4 - time3}")
+        
         return ray_bundle, batch
 
     def next_eval(self, step: int) -> Tuple[RayBundle, Dict]:

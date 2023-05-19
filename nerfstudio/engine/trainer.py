@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Type
 
+import psutil
 import torch
 from rich.console import Console
 from torch.cuda.amp.grad_scaler import GradScaler
@@ -200,9 +201,30 @@ class Trainer:
         with TimeWriter(writer, EventName.TOTAL_TRAIN_TIME):
             num_iterations = self.config.max_num_iterations
             step = 0
+            # with torch.profiler.profile(
+            #         schedule=torch.profiler.schedule(
+            #             wait=2,
+            #             warmup=2,
+            #             active=6,
+            #             repeat=1),
+            #         on_trace_ready=tensorboard_trace_handler,
+            #         with_stack=True
+            #     ) as profiler:
             for step in range(self._start_step, self._start_step + num_iterations):
                 with TimeWriter(writer, EventName.ITER_TRAIN_TIME, step=step) as train_t:
+                    CONSOLE.print("##############################################################")
+                    def get_memory_usage():
+                        process = psutil.Process()
+                        mem_info = process.memory_info()
 
+                        # Return the memory usage in megabytes (MB)
+                        return mem_info.rss / (1024**2)
+
+                    # Example usage:
+                    memory_usage = get_memory_usage()
+                    CONSOLE.print(f"Current memory usage: {memory_usage:.2f} MB")
+
+                    time1 = time.time()
                     self.pipeline.train()
 
                     # training callbacks before the training iteration
@@ -217,7 +239,8 @@ class Trainer:
                     # training callbacks after the training iteration
                     for callback in self.callbacks:
                         callback.run_callback_at_location(step, location=TrainingCallbackLocation.AFTER_TRAIN_ITERATION)
-
+                    time2 = time.time()
+                    CONSOLE.print(f"Time for train iteration: {time2 - time1}")
                 # Skip the first two steps to avoid skewed timings that break the viewer rendering speed estimate.
                 if step > 1:
                     writer.put_time(
@@ -405,12 +428,14 @@ class Trainer:
         self.optimizers.scheduler_step_all(step)
         time6 = time.time()
         
-        print("get loss dict: ", time2 - time1)
-        print("backward: ", time3 - time2)
-        print("optimizer step: ", time4 - time3)
-        print("grad scaler update: ", time5 - time4)
-        print("scheduler step: ", time6 - time5)
+        CONSOLE.print("Trainer: get train loss dict: ", time2 - time1)
+        CONSOLE.print("Trainer: backward: ", time3 - time2)
+        CONSOLE.print("Trainer: optimizer step: ", time4 - time3)
+        CONSOLE.print("Trainer: grad scaler update: ", time5 - time4)
+        CONSOLE.print("Trainer: scheduler step: ", time6 - time5)
         # Merging loss and metrics dict into a single output.
+        
+        
         return loss, loss_dict, metrics_dict
 
     @check_eval_enabled
@@ -423,7 +448,6 @@ class Trainer:
         """
         # a batch of eval rays
         if step_check(step, self.config.steps_per_eval_batch):
-            CONSOLE.print("eval loop")
             _, eval_loss_dict, eval_metrics_dict = self.pipeline.get_eval_loss_dict(step=step)
             eval_loss = functools.reduce(torch.add, eval_loss_dict.values())
             writer.put_scalar(name="Eval Loss", scalar=eval_loss, step=step)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 source /data/vision/polina/projects/wmh/dhollidt/conda/bin/activate
-conda activate nerfstudio3
+conda activate nerfstudio2
 
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_100.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json"
@@ -36,7 +36,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-generator-config.out-rgb-dim 16 \
 	--pipeline.model.feature-generator-config.out-density-dim 1 \
 	--pipeline.model.feature-generator-config.rot-augmentation True \
-	--pipeline.model.space-partitioning "evenly" \
+	--pipeline.model.space-partitioning "random" \
 	--pipeline.model.feature-transformer-model "pointnet" \
 	--pipeline.model.feature-transformer-pointnet-config.out_feature_channels 64 \
 	--pipeline.model.feature-transformer-pointnet-config.radius_scale 0.2 \

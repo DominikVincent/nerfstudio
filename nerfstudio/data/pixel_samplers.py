@@ -17,6 +17,7 @@ Code for sampling pixels.
 """
 
 import random
+import time
 from typing import Dict, Optional, Union
 
 import torch
@@ -62,9 +63,16 @@ class PixelSampler:  # pylint: disable=too-few-public-methods
             mask: mask of possible pixels in an image to sample from.
         """
         if isinstance(mask, torch.Tensor):
+            time1 = time.time()
             nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
+            time2 = time.time()
             chosen_indices = random.sample(range(len(nonzero_indices)), k=batch_size)
+            time3 = time.time()
             indices = nonzero_indices[chosen_indices]
+            time4 = time.time()
+            print(f"Sample method - nonzero: {time2 - time1}")
+            print(f"Sample method - random: {time3 - time2}")
+            print(f"Sample method - indices: {time4 - time3}")
         else:
             indices = torch.floor(
                 torch.rand((batch_size, 3), device=device)
@@ -87,20 +95,22 @@ class PixelSampler:  # pylint: disable=too-few-public-methods
 
         device = batch["image"].device
         num_images, image_height, image_width, _ = batch["image"].shape
-
+        time1 = time.time()
         if "mask" in batch:
             indices = self.sample_method(
                 num_rays_per_batch, num_images, image_height, image_width, mask=batch["mask"], device=device
             )
         else:
             indices = self.sample_method(num_rays_per_batch, num_images, image_height, image_width, device=device)
-
+        time2 = time.time()
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
+        time3 = time.time()
         collated_batch = {
             key: value[c, y, x]
             for key, value in batch.items()
             if key != "image_idx" and key != "model" and value is not None
         }
+        time4 = time.time()
 
         assert collated_batch["image"].shape == (num_rays_per_batch, 3), collated_batch["image"].shape
 
@@ -110,7 +120,12 @@ class PixelSampler:  # pylint: disable=too-few-public-methods
 
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
-
+        time5 = time.time()
+        
+        print(f"Collate image dataset batch - sampling: {time2 - time1}")
+        print(f"Collate image dataset batch - splitting: {time3 - time2}")
+        print(f"Collate image dataset batch - collating: {time4 - time3}")
+        print(f"Collate image dataset batch - full image: {time5 - time4}")
         return collated_batch
 
     def collate_image_dataset_batch_list(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False):

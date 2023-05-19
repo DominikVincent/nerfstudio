@@ -54,7 +54,7 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """specifies the datamanager config"""
     model: NeuralSemanticFieldConfig = NeuralSemanticFieldConfig()
     """specifies the model config"""
-    images_per_all_evaluation = 15
+    images_per_all_evaluation = 10
     """how many images should be evaluated per scene when evaluating all images. -1 means all"""
     save_images = False
     """save images during all image evaluation"""
@@ -126,6 +126,7 @@ class NesfPipeline(Pipeline):
         Args:
             step: current iteration step to update sampler if using DDP (distributed)
         """
+        time0 = time()
         self.datamanager.models_to_cpu(step)
         time1 = time()
         ray_bundle, batch = self.datamanager.next_train(step)
@@ -145,10 +146,11 @@ class NesfPipeline(Pipeline):
         
         time5 = time()
         
-        print(f"Time to get next train batch: {time2 - time1}")
-        print(f"Time to run model forward: {time3 - time2}")
-        print(f"Time to get metrics dict: {time4 - time3}")
-        print(f"Time to get loss dict: {time5 - time4}")
+        CONSOLE.print(f"Time to put models to cpu: {time1 - time0}")
+        CONSOLE.print(f"Time to get next train batch: {time2 - time1}")
+        CONSOLE.print(f"Time to run model forward: {time3 - time2}")
+        CONSOLE.print(f"Time to get metrics dict: {time4 - time3}")
+        CONSOLE.print(f"Time to get loss dict: {time5 - time4}")
 
         return transformer_model_outputs, loss_dict, metrics_dict
 
@@ -289,6 +291,9 @@ class NesfPipeline(Pipeline):
                         if log_to_wandb:
                             writer.put_image("test_image", img, step=step)
 
+                            if "entropy" in image_dict:
+                                writer.put_image("entropy", image_dict["entropy"], step=step)
+                                
                         img = img.cpu().numpy()
                         if save_path is not None:
                             file_path = save_path / f"{model_idx:03d}" / f"{batch['image_idx']:04d}.png"

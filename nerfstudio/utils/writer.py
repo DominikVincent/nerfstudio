@@ -23,6 +23,7 @@ from pathlib import Path
 from time import time
 from typing import Any, Dict, List, Optional, Union
 
+import psutil
 import torch
 from rich.console import Console
 from torch.utils.tensorboard import SummaryWriter
@@ -480,7 +481,7 @@ class LocalWriter:
                 else:
                     v = f"{v:0.4f}"
                 curr_mssg += f"{v:<20} "
-
+        
         # update the history buffer
         if self.config.max_log_size:
             if not self.has_printed:
@@ -499,3 +500,4 @@ class LocalWriter:
                 print(f"{style}{mssg:{padding}<{pad_len}} \x1b[0m")
         else:
             print(curr_mssg)
+

@@ -177,7 +177,7 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
     data = [scatter]
     # create a layout with axes labels
     layout = go.Layout(
-        title=f"RGB points: {points.shape}",
+        title=f"RGB points: {points_pad.shape}",
         scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"), aspectmode="data"),
     )
     if normals is not None:

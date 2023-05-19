@@ -20,10 +20,13 @@ Code for sampling images from a dataset of images.
 import concurrent.futures
 import multiprocessing
 import random
+import threading
 import time
 from abc import abstractmethod
 from typing import Dict, Optional, Tuple, Union
 
+import objgraph
+import psutil
 import torch
 from rich.progress import Console, track
 from torch.utils.data import Dataset
@@ -67,6 +70,7 @@ class CacheDataloader(DataLoader):
         self.device = device
         self.collate_fn = collate_fn
         self.num_workers = kwargs.get("num_workers", 0)
+        self.next_collated_batch = None
 
         self.num_repeated = self.num_times_to_repeat_images  # starting value
         self.first_time = True
@@ -88,7 +92,8 @@ class CacheDataloader(DataLoader):
                 f"Caching {self.num_images_to_sample_from} out of {len(self.dataset)} images, "
                 f"resampling every {self.num_times_to_repeat_images} iters."
             )
-
+        return
+    
     def __getitem__(self, idx):
         return self.dataset.__getitem__(idx)
 
@@ -99,27 +104,69 @@ class CacheDataloader(DataLoader):
         batch_list = []
         results = []
 
-        num_threads = int(self.num_workers) * 4
-        num_threads = min(num_threads, multiprocessing.cpu_count() - 1)
-        num_threads = max(num_threads, 1)
+        # num_threads = int(self.num_workers) * 4
+        # num_threads = min(num_threads, multiprocessing.cpu_count() - 1)
+        # num_threads = max(num_threads, 1)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-            for idx in indices:
-                res = executor.submit(self.dataset.__getitem__, idx)
-                results.append(res)
+        # with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        #     for idx in indices:
+        #         res = executor.submit(self.dataset.__getitem__, idx)
+        #         results.append(res)
 
-            for res in track(results, description="Loading data batch", transient=True):
-                batch_list.append(res.result())
-
+        #     # for res in track(results, description="Loading data batch", transient=True):
+        #     for res in results:
+        #         batch_list.append(res.result())
+        batch_list = [self.dataset[idx] for idx in indices]
         return batch_list
 
     def _get_collated_batch(self):
         """Returns a collated batch."""
+        # if we have prefetched a batch, return it
+        # if self.next_collated_batch is not None:
+        #     batch = self.next_collated_batch
+        #     self.next_collated_batch = None
+        #     get_dict_to_torch(batch, device=self.device, exclude=["image", "semantics"])
+        #     # Start a subprocess to fetch the next batch in the background
+        #     thread = threading.Thread(target=self._get_and_store_next_batch)
+        #     thread.start()
+        #     return batch
+        
+        # thread = threading.Thread(target=self._get_and_store_next_batch)
+        # thread.start()
+        # self._get_and_store_next_batch()
+        # next_batch_process = multiprocessing.Process(target=self._get_and_store_next_batch)
+        # next_batch_process.start()
+        
         batch_list = self._get_batch_list()
         collated_batch = self.collate_fn(batch_list)
-
+        # collated_batch = self.get_random_data()
+        
+        # collated_batch = None
         collated_batch = get_dict_to_torch(collated_batch, device=self.device, exclude=["image", "semantics"])
+        # objgraph.show_refs([batch_list], filename="batch_list.png")
+        # objgraph.show_backrefs([batch_list], filename='batch_list-backref-graph.png')
+        # self.next_collated_batch = collated_batch
         return collated_batch
+    
+    def _get_and_store_next_batch(self):
+        next_batch_list = self._get_batch_list()
+        self.next_collated_batch = self.collate_fn(next_batch_list)
+        print("Stored next batch!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        return 
+
+    def __next__(self):
+        return None
+
+    def get_random_data(self):
+        size = self.num_images_to_sample_from
+        model = self.dataset.__getitem__(0)["model"]
+        batch = {
+            "image_idx": torch.randint(0, len(self.dataset), (size,)),
+            "image": torch.rand((size, 256, 256, 3)),
+            "model": [model]*size,
+            "semantics": torch.randint(0, 5, (size, 256, 256, 1), dtype=torch.long),
+        }
+        return batch
 
     def __iter__(self):
         while True:

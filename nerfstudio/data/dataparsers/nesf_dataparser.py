@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import multiprocessing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Type, cast
@@ -51,6 +53,8 @@ SEMANTIC_CLASSES_KUBASIC_OBJECTS = [
     "teapot",
     "suzanne",
 ]
+SEMANTIC_CLASSES_TOYBOX_5 = ["background", "airplane", "car", "chair", "sofa", "table"]
+SEMANTIC_CLASSES_TOYBOX_13 = ["background", "airplane", "bench", "cabinet", "car", "chair", "display", "lamp", "loudspeaker", "rifle", "sofa", "table", "telephone", "vessel"]
 
 CLASS_TO_COLOR = (
     torch.tensor(
@@ -149,54 +153,62 @@ class Nesf(DataParser):
 
         put_config("config", data_config, 0)
 
-        models = []
         data_parser_outputs = []
-        for conf in data_config["config"]:
-            print("split: ", split)
-            print("conf:", conf["data_parser_config"])
-            print(conf.get("set_type", "train"))
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = []
+            for conf in data_config["config"]:
+                future = executor.submit(self.process_conf, conf, split)
+                futures.append(future)
+            for future in concurrent.futures.as_completed(futures):
+                data_parser_outputs.append(future.result())
+        # models = []
+        # data_parser_outputs = []
+        # for conf in data_config["config"]:
+        #     print("split: ", split)
+        #     print("conf:", conf["data_parser_config"])
+        #     print(conf.get("set_type", "train"))
 
-            nerfstudio = NerfstudioDataParserConfig(**conf["data_parser_config"]).setup()
-            # TODO find a more global solution for casting instead of just one key
-            nerfstudio.config.data = Path(nerfstudio.config.data)
+        #     nerfstudio = NerfstudioDataParserConfig(**conf["data_parser_config"]).setup()
+        #     # TODO find a more global solution for casting instead of just one key
+        #     nerfstudio.config.data = Path(nerfstudio.config.data)
 
-            # dataparser_output = nerfstudio.get_dataparser_outputs(split=conf.get("set_type", "train"))
-            if "set_type" in conf:
-                split = conf["set_type"]
-            dataparser_output = nerfstudio.get_dataparser_outputs(split=split)
-            CONSOLE.print(f"[green] loaded dataparser_output from {nerfstudio.config.data}")
-            print(len(dataparser_output.image_filenames))
-            print([int(path.name[5:-4]) for path in dataparser_output.image_filenames])
+        #     # dataparser_output = nerfstudio.get_dataparser_outputs(split=conf.get("set_type", "train"))
+        #     if "set_type" in conf:
+        #         split = conf["set_type"]
+        #     dataparser_output = nerfstudio.get_dataparser_outputs(split=split)
+        #     CONSOLE.print(f"[green] loaded dataparser_output from {nerfstudio.config.data}")
+        #     print(len(dataparser_output.image_filenames))
+        #     print([int(path.name[5:-4]) for path in dataparser_output.image_filenames])
 
-            models.append({"load_dir": conf["load_dir"], "load_step": conf["load_step"], "data_parser": nerfstudio})
-            # TODO maybe load model
+        #     # models.append({"load_dir": conf["load_dir"], "load_step": conf["load_step"], "data_parser": nerfstudio})
+        #     # TODO maybe load model
 
-            # parent path of file
-            data_path = dataparser_output.image_filenames[0].parent.resolve()
-            CONSOLE.print(f"Loading model from {data_path}")
-            model = self._load_model(
-                load_dir=Path(conf["load_dir"]),
-                load_step=conf["load_step"],
-                data_dir=data_path,
-                config=conf["model_config"],
-            ).to("cpu").to(torch.float32)
-            CONSOLE.print(f"[green] loaded model from {data_path}")
+        #     # parent path of file
+        #     data_path = dataparser_output.image_filenames[0].parent.resolve()
+        #     CONSOLE.print(f"Loading model from {data_path}")
+        #     model = self._load_model(
+        #         load_dir=Path(conf["load_dir"]),
+        #         load_step=conf["load_step"],
+        #         data_dir=data_path,
+        #         config=conf["model_config"],
+        #     ).to("cpu").to(torch.float32)
+        #     CONSOLE.print(f"[green] loaded model from {data_path}")
 
-            # get the list of semantic images. For each image there should be a semantic image.
-            semantic_paths = []
-            for image_filename in dataparser_output.image_filenames:
-                image_name = image_filename.stem
-                base_path = image_filename.parent
-                number = image_name.split("_")[1]
-                semantic_paths.append(base_path / f"segmentation_{number}.png")
+        #     # get the list of semantic images. For each image there should be a semantic image.
+        #     semantic_paths = []
+        #     for image_filename in dataparser_output.image_filenames:
+        #         image_name = image_filename.stem
+        #         base_path = image_filename.parent
+        #         number = image_name.split("_")[1]
+        #         semantic_paths.append(base_path / f"segmentation_{number}.png")
 
-            semantics = Semantics(
-                filenames=semantic_paths, classes=SEMANTIC_CLASSES_CLEVR_OBJECTS, colors=CLASS_TO_COLOR, mask_classes=[]
-            )
-            # TODO update dataparser_output.metadata with model
-            dataparser_output.metadata.update({"model": model, "semantics": semantics})
+        #     semantics = Semantics(
+        #         filenames=semantic_paths, classes=SEMANTIC_CLASSES_CLEVR_OBJECTS, colors=CLASS_TO_COLOR, mask_classes=[]
+        #     )
+        #     # TODO update dataparser_output.metadata with model
+        #     dataparser_output.metadata.update({"model": model, "semantics": semantics})
 
-            data_parser_outputs.append(dataparser_output)
+        #     data_parser_outputs.append(dataparser_output)
 
         # TODO remove if uneeded
         # dataparser_outputs = NesfDataparserOutputs([data_parser_output.image_filenames for data_parser_output in data_parser_outputs],
@@ -210,7 +222,64 @@ class Nesf(DataParser):
         #     },
         # )
         CONSOLE.print("Returned NESF dataparser outputs")
+        data_parser_outputs.sort(key=lambda x: int(x.image_filenames[0].parent.name))
         return data_parser_outputs
+    
+    
+    def process_conf(self, conf, split):
+        print("split: ", split)
+        print("conf:", conf["data_parser_config"])
+        print(conf.get("set_type", "train"))
+
+        nerfstudio = NerfstudioDataParserConfig(**conf["data_parser_config"]).setup()
+        # TODO find a more global solution for casting instead of just one key
+        nerfstudio.config.data = Path(nerfstudio.config.data)
+
+        if "set_type" in conf:
+            split = conf["set_type"]
+        dataparser_output = nerfstudio.get_dataparser_outputs(split=split)
+        CONSOLE.print(f"[green] loaded dataparser_output from {nerfstudio.config.data}")
+        print(len(dataparser_output.image_filenames))
+        print([int(path.name[5:-4]) for path in dataparser_output.image_filenames])
+
+        # models.append({"load_dir": conf["load_dir"], "load_step": conf["load_step"], "data_parser": nerfstudio})
+        # TODO maybe load model
+
+        # parent path of file
+        data_path = dataparser_output.image_filenames[0].parent.resolve()
+        CONSOLE.print(f"Loading model from {data_path}")
+        model = self._load_model(
+            load_dir=Path(conf["load_dir"]),
+            load_step=conf["load_step"],
+            data_dir=data_path,
+            config=conf["model_config"],
+        ).to("cpu").to(torch.float32)
+        CONSOLE.print(f"[green] loaded model from {data_path}")
+
+        # get the list of semantic images. For each image, there should be a semantic image.
+        semantic_paths = []
+        for image_filename in dataparser_output.image_filenames:
+            image_name = image_filename.stem
+            base_path = image_filename.parent
+            number = image_name.split("_")[1]
+            semantic_paths.append(base_path / f"segmentation_{number}.png")
+
+        
+        if "klevr" in conf["data_parser_config"]["data"]:
+            classes = SEMANTIC_CLASSES_CLEVR_OBJECTS
+        elif "toybox-5" in conf["data_parser_config"]["data"]:
+            classes = SEMANTIC_CLASSES_TOYBOX_5
+        elif "toybox-13" in conf["data_parser_config"]["data"]:
+            classes = SEMANTIC_CLASSES_TOYBOX_13
+        else:
+            raise ValueError("Dataset not supported")
+        semantics = Semantics(
+            filenames=semantic_paths, classes=classes, colors=CLASS_TO_COLOR, mask_classes=[]
+        )
+        # TODO update dataparser_output.metadata with model
+        dataparser_output.metadata.update({"model": model, "semantics": semantics})
+
+        return dataparser_output
 
     def _load_model(
         self, load_dir, load_step, data_dir: Path, config: Dict, local_rank: int = 0, world_size: int = 1
@@ -270,4 +339,16 @@ class Nesf(DataParser):
             print("No checkpoints to load, training from scratch")
 
         self.model_cache[str(load_dir) + str(load_step)] = pipeline.model
+        
+        def get_network_memory_size(model):
+            total_params = 0
+
+            # Iterate through all parameters of the model
+            for param in model.parameters():
+                # Multiply the size of each parameter by its number of elements
+                total_params += torch.numel(param) * param.element_size()
+
+            return total_params / (1024**2)  # Convert to megabytes (MB)
+        
+        CONSOLE.print(f"Model size: {get_network_memory_size(pipeline.model)} MB")
         return pipeline.model

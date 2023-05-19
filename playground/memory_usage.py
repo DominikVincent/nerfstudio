@@ -1,3 +1,5 @@
+import gc
+
 import torch
 
 from nerfstudio.model_components.nesf_components import *
@@ -29,6 +31,7 @@ for i in range(10):
     print(f"Current memory cached: {torch.cuda.memory_cached() / 1024**2:.2f} MB")
     print(f"Current memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
     print(f"Current memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+    gc.collect()
     torch.cuda.empty_cache()
     print(f" After clear  - Current memory usage: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
     print(f" After clear  - Current memory cached: {torch.cuda.memory_cached() / 1024**2:.2f} MB")

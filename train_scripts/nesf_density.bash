@@ -1,7 +1,7 @@
 #!/bin/bash
 
 source /data/vision/polina/projects/wmh/dhollidt/conda/bin/activate
-conda activate nerfstudio3
+conda activate nerfstudio2
 
 ns-train nesf_density --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11 \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \

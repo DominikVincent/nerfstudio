@@ -45,6 +45,8 @@ class SceneSamplerConfig(InstantiateConfig):
     """How many samples per ray to take"""
     surface_sampling: bool = True
     """Sample only the surface or also the volume"""
+    surface_threshold: float = 0.5
+    """At what accumulated weight percentage along a ray a surface is considered"""
     density_threshold: float = 0.7
     """The density threshold for which to not use the points for training. Points below will not be used"""
     z_value_threshold: float = -1
@@ -93,6 +95,7 @@ class SceneSampler:
             NotImplementedError: _description_
         """
         model.eval()
+        time1 = time.time()
         if isinstance(model, NerfactoModel):
             model = cast(NerfactoModel, model)
             with torch.no_grad():
@@ -111,12 +114,15 @@ class SceneSampler:
         else:
             raise NotImplementedError("Only NerfactoModel is supported for now")
 
+        time2 = time.time()
         if self.config.surface_sampling:
             ray_samples, weights, field_outputs = self.surface_sampling(ray_samples, weights, field_outputs)
         
+        time3 = time.time()
         original_fields_outputs = {}
         original_fields_outputs[FieldHeadNames.DENSITY] = field_outputs[FieldHeadNames.DENSITY].detach().clone()
         original_fields_outputs[FieldHeadNames.RGB] = field_outputs[FieldHeadNames.RGB].detach().clone()
+        time4 = time.time()
         if FieldHeadNames.PRED_NORMALS in field_outputs:
             original_fields_outputs[FieldHeadNames.PRED_NORMALS] = field_outputs[FieldHeadNames.PRED_NORMALS].detach().clone()
         else:
@@ -126,9 +132,9 @@ class SceneSampler:
         original_fields_outputs["ray_samples"] = ray_samples
         
         density_mask = self.get_density_mask(field_outputs)
-
+        time5 = time.time()
         pos_mask = self.get_pos_mask(ray_samples)
-        
+        time6 = time.time()
 
         total_mask = density_mask & pos_mask
         
@@ -142,12 +148,22 @@ class SceneSampler:
         else:
             raise NotImplementedError("Only ransac and min are supported for now")
         
+        time7 = time.time()
         total_mask = total_mask & non_ground_mask
 
         final_mask = self.get_limit_mask(total_mask)
-
+        time8 = time.time()
         ray_samples, weights, field_outputs = self.apply_mask(ray_samples, weights, field_outputs, final_mask)
-
+        time9 = time.time()
+        
+        # CONSOLE.print(f"Sampler: query nerf: {time2-time1}")
+        # CONSOLE.print(f"Sampler: surface sampling: {time3-time2}")
+        # CONSOLE.print(f"Sampler: copy field outputs: {time4-time3}")
+        # CONSOLE.print(f"Sampler: density mask: {time5-time4}")
+        # CONSOLE.print(f"Sampler: pos mask: {time6-time5}")
+        # CONSOLE.print(f"Sampler: non ground mask: {time7-time6}")
+        # CONSOLE.print(f"Sampler: limit mask: {time8-time7}")
+        # CONSOLE.print(f"Sampler: apply mask: {time9-time8}")
         return ray_samples, weights, field_outputs, final_mask, original_fields_outputs
 
     def surface_sampling(
@@ -166,7 +182,7 @@ class SceneSampler:
             field_outputs (_type_): N_rays x 1 x dim
         """
         cumulative_weights = torch.cumsum(weights[..., 0], dim=-1)  # [..., num_samples]
-        split = torch.ones((*weights.shape[:-2], 1), device=weights.device) * 0.5  # [..., 1]
+        split = torch.ones((*weights.shape[:-2], 1), device=weights.device) * self.config.surface_threshold  # [..., 1]
         median_index = torch.searchsorted(cumulative_weights, split, side="left")  # [..., 1]
         median_index = torch.clamp(median_index, 0, ray_samples.shape[-1] - 1)  # [..., 1]
 
@@ -200,6 +216,7 @@ class SceneSampler:
         points_dense_mask = (points[..., 2] > self.config.z_value_threshold) & (
             torch.norm(points[..., :2], dim=-1) <= self.config.xy_distance_threshold
         )
+        # print(points_dense_mask)
         return points_dense_mask
     
     def get_non_ground_mask(self, ray_samples, mask: TensorType) -> TensorType["N_rays", "N_samples"]:
@@ -230,7 +247,13 @@ class SceneSampler:
             filtered_points = points[mask]
             # visualize_point_batch(points.cpu().unsqueeze(0))
             
-        
+            # find lowest z point
+            sorted_z = torch.sort(filtered_points[..., 2].flatten())[0]
+            ground_z = sorted_z[:self.config.ground_points_count].median()
+            
+            filtered_points = filtered_points[filtered_points[..., 2] < ground_z + 2 * self.config.ground_tolerance]
+            # visualize_point_batch(filtered_points.cpu().unsqueeze(0))
+            
             model = RANSACRegressor()
             model.fit(filtered_points[..., :2].cpu(), filtered_points[..., 2].cpu())
             
@@ -250,6 +273,7 @@ class SceneSampler:
         
         time_end = time.time()
         print("Ground plane fitting took: ", time_end - time_start, " seconds")
+        print("Mask", mask)
         return mask
 
     def get_limit_mask(self, mask):
@@ -299,11 +323,14 @@ class MaskerConfig(InstantiateConfig):
     mask_ratio: float = 0.75
     """The number of points which should be masked approximatly"""
     
-    mode: Literal["random"] = "random"
+    mode: Literal["random", "patch"] = "random"
     """The mode of masking to use"""
     
     pos_encoder: Literal["sin", "rff"] = "sin"
     """what kind of feature encoded should be used?"""
+    
+    num_patches: int = 25
+    """How many centroids should be used for the patch mode. Patches will evolve around centroids"""
 
 class Masker(nn.Module):
     def __init__(self, config: MaskerConfig, output_size: int):
@@ -317,7 +344,7 @@ class Masker(nn.Module):
         
         if self.config.pos_encoder == "sin":
             self.pos_encoder = NeRFEncoding(
-                in_dim=3, num_frequencies=8, min_freq_exp=0.0, max_freq_exp=8.0, include_input=True
+                in_dim=3, num_frequencies=7, min_freq_exp=0.0, max_freq_exp=7.0, include_input=True
             )
         elif self.config.pos_encoder == "rff":
             self.pos_encoder = RFFEncoding(in_dim=3, num_frequencies=8, scale=10)
@@ -334,10 +361,32 @@ class Masker(nn.Module):
             return x, torch.empty((1,)), torch.empty((1,)), {}
         
         if self.config.mode == "random":
-            return self.random_mask(x, batch)
+            ids_keep, ids_mask, ids_restore =  self.random_mask(x, batch)
+        elif self.config.mode == "patch":
+            ids_keep, ids_mask, ids_restore =  self.patch_mask(x, batch)
         else: 
             raise ValueError(f"Unknown masking mode {self.config.mode}")
         
+        N, L, D = x.shape  # batch, length, dim
+        len_keep = int(L * (1 - self.config.mask_ratio))
+        
+        batch["points_xyz_all"] = batch["points_xyz"]
+        batch["points_xyz"] = torch.gather(batch["points_xyz"], dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, 3))
+        batch["points_xyz_masked"] = torch.gather(batch["points_xyz_all"], dim=1, index=ids_mask.unsqueeze(-1).repeat(1, 1, 3))
+        if "src_key_padding_mask" in batch and batch["src_key_padding_mask"] is not None:
+            batch["src_key_padding_mask_orig"] = batch["src_key_padding_mask"]
+            batch["src_key_padding_mask"] = torch.gather(batch["src_key_padding_mask"], dim=1, index=ids_keep)
+        
+        # generate the binary mask: 0 is keep, 1 is remove
+        mask = torch.ones([N, L], device=x.device)
+        mask[:, :len_keep] = 0
+        # unshuffle to get the binary mask
+        mask = torch.gather(mask, dim=1, index=ids_restore)
+        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+        
+        
+        # visualize_point_batch(batch["points_xyz"])
+        return x_masked, mask, ids_restore, batch
     
     def unmask(self, x: torch.Tensor, batch: dict, ids_restore: torch.Tensor):
         """Unmask the points in the batch for the decoder. It will filter out the mask points"""
@@ -349,6 +398,8 @@ class Masker(nn.Module):
         
         # add position encoding to the mask tokens
         mask_tokens[..., :self.pos_encoder.get_out_dim()] = mask_tokens[..., :self.pos_encoder.get_out_dim()] + self.pos_encoder(batch["points_xyz_masked"])
+        
+        # visualize_point_batch(batch["points_xyz_masked"])
         
         x_ = torch.cat([x, mask_tokens], dim=1)  # no cls token
         x = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]))  # unshuffle
@@ -377,22 +428,33 @@ class Masker(nn.Module):
         # keep the first subset
         ids_keep = ids_shuffle[:, :len_keep]
         ids_mask = ids_shuffle[:, len_keep:]
-        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
-        batch["points_xyz_all"] = batch["points_xyz"]
-        batch["points_xyz"] = torch.gather(batch["points_xyz"], dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, 3))
-        batch["points_xyz_masked"] = torch.gather(batch["points_xyz_all"], dim=1, index=ids_mask.unsqueeze(-1).repeat(1, 1, 3))
-        if "src_key_padding_mask" in batch and batch["src_key_padding_mask"] is not None:
-            batch["src_key_padding_mask_orig"] = batch["src_key_padding_mask"]
-            batch["src_key_padding_mask"] = torch.gather(batch["src_key_padding_mask"], dim=1, index=ids_keep)
-        
-        # generate the binary mask: 0 is keep, 1 is remove
-        mask = torch.ones([N, L], device=x.device)
-        mask[:, :len_keep] = 0
-        # unshuffle to get the binary mask
-        mask = torch.gather(mask, dim=1, index=ids_restore)
-        
 
-        return x_masked, mask, ids_restore, batch
+        return ids_keep, ids_mask, ids_restore
+    
+    def patch_mask(self, x: torch.Tensor, batch: dict):
+        """
+        Mask a ceratin amount of points. The result should be patches which are masked.
+        """
+        
+        N, L, C = x.shape
+        
+        ratio = 0.75
+        points = batch["points_xyz"]
+
+        # select k points per batch randomly
+        centroids = points[:, torch.randperm(points.shape[1])[:self.config.num_patches]]
+
+        # compute pairwise distances between points and centroids
+        distances = torch.cdist(points, centroids)
+        distances = torch.min(distances, dim=2)[0]
+        distances, indices = torch.sort(distances, dim=1)
+
+        len_keep = int(L * (1 - ratio))
+        ids_restore = torch.argsort(indices, dim=1)
+        indices_keep = indices[:, :len_keep]
+        indices_mask = indices[:, len_keep:]
+        
+        return indices_keep, indices_mask, ids_restore
 
 @dataclass
 class FeatureGeneratorTorchConfig(InstantiateConfig):
@@ -824,20 +886,14 @@ class StratifiedTransformerWrapper(nn.Module):
         self.config = config
         self.activation = activation
 
-        print("grid_size", self.config.grid_size)
-        print("quant_size", self.config.quant_size)
-        print("window_size", self.config.window_size)
-        print("patch_size", self.config.patch_size)
-        
         patch_size = self.config.grid_size * self.config.patch_size
-        print("patch_size", patch_size)
         window_sizes = [patch_size * self.config.window_size * (2**i) for i in range(self.config.num_layers)]
         grid_sizes = [patch_size * (2**i) for i in range(self.config.num_layers)]
         quant_sizes = [self.config.quant_size * (2**i) for i in range(self.config.num_layers)]
-        print("patch_size", patch_size)
-        print("window_sizes", window_sizes)
-        print("grid_sizes", grid_sizes)
-        print("quant_sizes", quant_sizes)
+        CONSOLE.print("patch_size", patch_size)
+        CONSOLE.print("window_sizes", window_sizes)
+        CONSOLE.print("grid_sizes", grid_sizes)
+        CONSOLE.print("quant_sizes", quant_sizes)
 
         self.model = Stratified(
             self.config.downsample_scale,
@@ -875,12 +931,12 @@ class StratifiedTransformerWrapper(nn.Module):
 
             parameters_filtered = sum(p.numel() for p in state_dict.values())
             
-            print("State dict has ", parameters_filtered, " parameters out of ", total_parameters_state_dict, " parameters")
+            CONSOLE.print("State dict has ", parameters_filtered, " parameters out of ", total_parameters_state_dict, " parameters")
             
             missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
-            print("Loaded feature transformer from pretrained checkpoint")
-            print("Feature Transformer missing keys", missing_keys)
-            print("Feature Transformer unexpected keys", unexpected_keys)
+            CONSOLE.print("Loaded feature transformer from pretrained checkpoint")
+            CONSOLE.print("Feature Transformer missing keys", missing_keys)
+            CONSOLE.print("Feature Transformer unexpected keys", unexpected_keys)
                 
     def forward(self, x: torch.Tensor, batch: dict):
         start_time = time.time()
