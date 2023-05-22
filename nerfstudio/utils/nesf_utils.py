@@ -3,6 +3,7 @@ from typing import Tuple, Union
 
 import numpy as np
 import plotly.graph_objs as go
+import psutil
 import torch
 from rich.console import Console
 from torchtyping import TensorType
@@ -264,3 +265,11 @@ def compute_mIoU(confusion_matrix) -> Tuple[float, np.ndarray]:
     
     
     return mIoU, IoU
+
+
+def get_memory_usage():
+    process = psutil.Process()
+    mem_info = process.memory_info()
+
+    # Return the memory usage in megabytes (MB)
+    return mem_info.rss / (1024**2)

@@ -37,6 +37,7 @@ from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
 from nerfstudio.utils.misc import get_dict_to_torch
+from nerfstudio.utils.nesf_utils import get_memory_usage
 
 CONSOLE = Console(width=120)
 
@@ -92,6 +93,8 @@ class CacheDataloader(DataLoader):
                 f"Caching {self.num_images_to_sample_from} out of {len(self.dataset)} images, "
                 f"resampling every {self.num_times_to_repeat_images} iters."
             )
+            
+        CONSOLE.print("Memory usage", get_memory_usage())
         return
     
     def __getitem__(self, idx):

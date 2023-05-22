@@ -31,6 +31,7 @@ from rich.console import Console
 from torch.cuda.amp.grad_scaler import GradScaler
 from typing_extensions import Literal
 
+import wandb
 from nerfstudio.configs.experiment_config import ExperimentConfig
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.engine.callbacks import (
@@ -48,6 +49,7 @@ from nerfstudio.utils.decorators import (
     check_viewer_enabled,
 )
 from nerfstudio.utils.misc import step_check
+from nerfstudio.utils.nesf_utils import get_memory_usage
 from nerfstudio.utils.writer import EventName, TimeWriter
 from nerfstudio.viewer.server import viewer_utils
 
@@ -135,6 +137,8 @@ class Trainer:
         writer.setup_event_writer(config.is_wandb_enabled(), config.is_tensorboard_enabled(), log_dir=writer_log_path)
         writer.setup_local_writer(config.logging, max_iter=config.max_num_iterations, banner_messages=banner_messages)
         writer.put_config(name="config", config_dict=dataclasses.asdict(config), step=0)
+        if self.config.wandb_run_name is not None and wandb.run is not None:
+            wandb.run.name = self.config.wandb_run_name
         profiler.setup_profiler(config.logging)
 
     def setup(self, test_mode: Literal["test", "val", "inference"] = "val"):
@@ -213,12 +217,7 @@ class Trainer:
             for step in range(self._start_step, self._start_step + num_iterations):
                 with TimeWriter(writer, EventName.ITER_TRAIN_TIME, step=step) as train_t:
                     CONSOLE.print("##############################################################")
-                    def get_memory_usage():
-                        process = psutil.Process()
-                        mem_info = process.memory_info()
-
-                        # Return the memory usage in megabytes (MB)
-                        return mem_info.rss / (1024**2)
+                    
 
                     # Example usage:
                     memory_usage = get_memory_usage()
@@ -357,7 +356,7 @@ class Trainer:
             if self.config.load_pretrained_model:
                 pipeline_state_dict = loaded_state["pipeline"]
                 # remove all keys which contain certain strings
-                strings_not_allowed = ["head", "fallback_model", "decoder", "mask_token", "learned_low_density_value"]
+                strings_not_allowed = ["head", "fallback_model", "decoder", "mask_token", "learned_low_density_value", "learned_mask_value"]
                 for key in list(pipeline_state_dict.keys()):
                    
                     if any(string in key for string in strings_not_allowed):

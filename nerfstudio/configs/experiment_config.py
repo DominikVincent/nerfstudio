@@ -71,6 +71,8 @@ class ExperimentConfig(InstantiateConfig):
     """Dictionary of optimizer groups and their schedulers"""
     vis: Literal["viewer", "wandb", "tensorboard"] = "wandb"
     """Which visualizer to use."""
+    wandb_run_name: Optional[str] = None
+    """If set you can set the wandb name"""
     data: Optional[Path] = None
     """Alias for --pipeline.datamanager.dataparser.data"""
     relative_model_dir: Path = Path("nerfstudio_models/")

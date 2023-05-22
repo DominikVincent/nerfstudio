@@ -39,7 +39,7 @@ from nerfstudio.pipelines.base_pipeline import (
     VanillaPipelineConfig,
 )
 from nerfstudio.utils import profiler, writer
-from nerfstudio.utils.nesf_utils import compute_mIoU
+from nerfstudio.utils.nesf_utils import compute_mIoU, get_memory_usage
 
 CONSOLE = Console(width=120)
 
@@ -90,9 +90,11 @@ class NesfPipeline(Pipeline):
         self.config = config
         self.test_mode = test_mode
 
+        CONSOLE.print("Memory before datamanager init:", get_memory_usage())
         self.datamanager: NesfDataManager = config.datamanager.setup(
             device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank
         )
+        CONSOLE.print("Memory after datamanager init:", get_memory_usage())
         self.datamanager.to(device)
 
         # TODO(ethan): get rid of scene_bounds from the model

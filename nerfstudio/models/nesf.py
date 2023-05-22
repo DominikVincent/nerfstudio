@@ -296,17 +296,17 @@ class NeuralSemanticFieldModel(Model):
         # TODO query NeRF
         # TODO do feature conversion + MLP
         # TODO do semantic rendering
-        # def get_fake_output(size: int):
-        #     # gt_value = torch.zeros(size, self.learned_low_density_value.shape[0]).to(self.learned_low_density_value.device)
-        #     pred_value = self.learned_low_density_value.repeat(size, 1)
-        #     outputs = {
-        #         "rgb": pred_value,
-        #         "density": pred_value,
-        #         "semantics": pred_value,
-        #     }
-        #     return outputs
-        # outputs = get_fake_output(ray_bundle.shape[0])
-        # return outputs
+        def get_fake_output(size: int):
+            # gt_value = torch.zeros(size, self.learned_low_density_value.shape[0]).to(self.learned_low_density_value.device)
+            pred_value = self.learned_low_density_value.repeat(size, 1)
+            outputs = {
+                "rgb": pred_value,
+                "density": pred_value,
+                "semantics": pred_value,
+            }
+            return outputs
+        outputs = get_fake_output(ray_bundle.shape[0])
+        return outputs
         
         model: Model = self.get_model(batch)
 
@@ -340,7 +340,7 @@ class NeuralSemanticFieldModel(Model):
         CONSOLE.print("sampling: ", time2 - time1)
         CONSOLE.print("batching: ", time3 - time2)
         CONSOLE.print("feature model: ", time4 - time3)
-        
+        CONSOLE.print("Processing pointcloud: ", outs.shape)
         outputs = {}
         if self.config.pretrain:
             # remove all the masked points from outs. The masks tells which points got removed.
@@ -742,7 +742,7 @@ class NeuralSemanticFieldModel(Model):
                     metrics_dict["density_mae"] = F.l1_loss(outputs["density_gt"], outputs["density_pred"]).item()
 
         elif self.config.mode == "semantics":
-            semantics_colormap_gt = self.semantics.colors[batch["semantics"].squeeze(-1)].to(self.device)
+            semantics_colormap_gt = self.semantics.colors[batch["semantics"].squeeze(-1).to("cpu")].to(self.device)
             semantics_colormap = outputs["semantics_colormap"]
             combined_semantics = torch.cat([semantics_colormap_gt, semantics_colormap], dim=1)
             images_dict["img"] = combined_semantics

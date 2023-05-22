@@ -36,6 +36,7 @@ from nerfstudio.data.utils.dataloaders import (
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
 from nerfstudio.model_components.ray_generators import RayGenerator
 from nerfstudio.utils import profiler
+from nerfstudio.utils.nesf_utils import get_memory_usage
 
 CONSOLE = Console(width=120)
 MAX_AUTO_RESOLUTION = 1600
@@ -120,11 +121,15 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.sampler = None
         self.test_mode = test_mode
         self.test_split = "test" if test_mode in ["test", "inference"] else "val"
+        CONSOLE.print(f"Datamanager mem usage: ", get_memory_usage())
         self.dataparser: Nesf = self.config.dataparser.setup()
+        CONSOLE.print(f"Datamanager after setup usage: ", get_memory_usage())
         self.train_dataparser_outputs = self.dataparser.get_dataparser_outputs(split="train")
-
+        CONSOLE.print(f"Datamanager mem usage: ", get_memory_usage())
         self.train_datasets = self.create_train_datasets()
+        CONSOLE.print(f"Datamanager mem usage create_train_datasets: ", get_memory_usage())
         self.eval_datasets = self.create_eval_datasets()
+        CONSOLE.print(f"Datamanager mem usage create_eval_datasets: ", get_memory_usage())
         self.train_dataset = self.train_datasets
         self.eval_dataset = self.eval_datasets
         self.eval_image_model = 0
@@ -179,6 +184,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             )
             for train_dataset in self.train_datasets
         ]
+        
         self.iter_train_image_dataloaders = [
             iter(train_image_dataloader) for train_image_dataloader in self.train_image_dataloaders
         ]
@@ -206,6 +212,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             )
             for train_dataset, train_camera_optimizer in zip(self.train_datasets, self.train_camera_optimizers)
         ]
+        CONSOLE.print(f"Datamanager mem usage end of train setup: ", get_memory_usage())
         
         return
 
@@ -262,6 +269,9 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             )
             for eval_dataset in self.eval_datasets
         ]
+        
+        CONSOLE.print(f"Datamanager mem usage end of eval setup: ", get_memory_usage())
+        
 
     def debug_stats(self):
         non_gpu = []
@@ -300,6 +310,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     @profiler.time_function
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
+        CONSOLE.print("Before next train mem usage: ", get_memory_usage())
         self.train_count += 1
         model_idx = self.step_to_dataset(step)
         time1 = time.time()
@@ -356,6 +367,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         CONSOLE.print(f"Next Train - get_batch: {time2 - time1}")
         CONSOLE.print(f"Next Train - sample pixels: {time3 - time2}")
         CONSOLE.print(f"Next Train - ray generation: {time4 - time3}")
+        CONSOLE.print("After next train mem usage: ", get_memory_usage())
         
         return ray_bundle, batch
 

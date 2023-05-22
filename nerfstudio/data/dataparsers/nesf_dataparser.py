@@ -33,6 +33,7 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
 from nerfstudio.models.base_model import Model
 from nerfstudio.utils.io import load_from_json
+from nerfstudio.utils.nesf_utils import get_memory_usage
 from nerfstudio.utils.writer import put_config
 
 CONSOLE = Console(width=120)
@@ -145,16 +146,18 @@ class Nesf(DataParser):
 
     def _generate_dataparser_outputs(self, split="train") -> List[DataparserOutputs]:
         # pylint: disable=too-many-statements
-
+        CONSOLE.print("Memory usage start dataparsing: ", get_memory_usage())
         if self.config.data_config.suffix == ".json":
             data_config = load_from_json(self.config.data_config)
         else:
             data_config = load_from_json(self.config.data_config / "data_config.json")
 
         put_config("config", data_config, 0)
-
+        
+        CONSOLE.print("Memory usage: ", get_memory_usage())
+        
         data_parser_outputs = []
-        with concurrent.futures.ThreadPoolExecutor() as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
             futures = []
             for conf in data_config["config"]:
                 future = executor.submit(self.process_conf, conf, split)
@@ -230,6 +233,8 @@ class Nesf(DataParser):
         print("split: ", split)
         print("conf:", conf["data_parser_config"])
         print(conf.get("set_type", "train"))
+        CONSOLE.print("Current mem usage before parsing: ", get_memory_usage())
+        
 
         nerfstudio = NerfstudioDataParserConfig(**conf["data_parser_config"]).setup()
         # TODO find a more global solution for casting instead of just one key
@@ -238,6 +243,7 @@ class Nesf(DataParser):
         if "set_type" in conf:
             split = conf["set_type"]
         dataparser_output = nerfstudio.get_dataparser_outputs(split=split)
+        
         CONSOLE.print(f"[green] loaded dataparser_output from {nerfstudio.config.data}")
         print(len(dataparser_output.image_filenames))
         print([int(path.name[5:-4]) for path in dataparser_output.image_filenames])
@@ -279,6 +285,7 @@ class Nesf(DataParser):
         # TODO update dataparser_output.metadata with model
         dataparser_output.metadata.update({"model": model, "semantics": semantics})
 
+        CONSOLE.print("Current mem usage after parsing: ", get_memory_usage())
         return dataparser_output
 
     def _load_model(

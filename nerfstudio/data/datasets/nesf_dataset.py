@@ -6,6 +6,7 @@ from torch.utils.data import Dataset
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
+from nerfstudio.utils.nesf_utils import get_memory_usage
 
 
 class NesfItemDataset(InputDataset):
@@ -24,6 +25,7 @@ class NesfItemDataset(InputDataset):
         self.mask_indices = torch.tensor(
             [self.semantics.classes.index(mask_class) for mask_class in self.semantics.mask_classes]
         ).view(1, 1, -1)
+        print("NesfItemDataset - memory usage: ", get_memory_usage())
 
     def get_metadata(self, data: Dict) -> Dict:
         filepath = self.semantics.filenames[data["image_idx"]]
