@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import multiprocessing
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Type, cast
@@ -254,13 +255,9 @@ class Nesf(DataParser):
         # parent path of file
         data_path = dataparser_output.image_filenames[0].parent.resolve()
         CONSOLE.print(f"Loading model from {data_path}")
-        model = self._load_model(
+        model_path = self._load_model(
             load_dir=Path(conf["load_dir"]),
-            load_step=conf["load_step"],
-            data_dir=data_path,
-            config=conf["model_config"],
-        ).to("cpu").to(torch.float32)
-        CONSOLE.print(f"[green] loaded model from {data_path}")
+            load_step=conf["load_step"])
 
         # get the list of semantic images. For each image, there should be a semantic image.
         semantic_paths = []
@@ -283,52 +280,14 @@ class Nesf(DataParser):
             filenames=semantic_paths, classes=classes, colors=CLASS_TO_COLOR, mask_classes=[]
         )
         # TODO update dataparser_output.metadata with model
-        dataparser_output.metadata.update({"model": model, "semantics": semantics})
+        dataparser_output.metadata.update({"model_path": model_path, "semantics": semantics})
 
         CONSOLE.print("Current mem usage after parsing: ", get_memory_usage())
         return dataparser_output
 
     def _load_model(
-        self, load_dir, load_step, data_dir: Path, config: Dict, local_rank: int = 0, world_size: int = 1
-    ) -> Model:
-        from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
-        from nerfstudio.data.datamanagers.base_datamanager import (
-            VanillaDataManagerConfig,
-        )
-        from nerfstudio.engine.optimizers import AdamOptimizerConfig
-        from nerfstudio.engine.trainer import TrainerConfig
-        from nerfstudio.models.nerfacto import NerfactoModelConfig
-        from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
-
-        if str(load_dir) + str(load_step) in self.model_cache:
-            CONSOLE.print("Returning model from cache")
-            return self.model_cache[str(load_dir) + str(load_step)]
-
-        # hack to figure out if model should predict normals
-        pred_normals = "normal" in str(load_dir)
-        
-        pipeline = VanillaPipelineConfig(
-            datamanager=VanillaDataManagerConfig(
-                dataparser=NerfstudioDataParserConfig(data=data_dir),
-                train_num_rays_per_batch=4096,
-                eval_num_rays_per_batch=4096,
-                camera_optimizer=CameraOptimizerConfig(
-                    mode="off", optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2)
-                ),
-            ),
-            model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15,
-                                      predict_normals=pred_normals
-                                      ),
-        )
-        pipeline.datamanager.dataparser = cast(NerfstudioDataParserConfig, pipeline.datamanager.dataparser)
-        pipeline.datamanager.dataparser.train_split_percentage = config.get(
-            "train_split", pipeline.datamanager.dataparser.train_split_percentage
-        )
-
-        # REMOVE THE LINE BELOW IF IT SHOULD LOAD ON GPU DIRECTLY
-        device = "cpu"
-        # device = "cpu" if world_size == 0 else f"cuda:{local_rank}"
-        pipeline = pipeline.setup(device=device, test_mode="inference", world_size=world_size, local_rank=local_rank)
+        self, load_dir, load_step
+    ) -> Path:
 
         """Helper function to load pipeline and optimizer from prespecified checkpoint"""
         if load_dir is not None:
@@ -338,24 +297,7 @@ class Nesf(DataParser):
                 load_step = sorted(int(x[x.find("-") + 1 : x.find(".")]) for x in os.listdir(load_dir))[-1]
             load_path = load_dir / f"step-{load_step:09d}.ckpt"
             assert load_path.exists(), f"Checkpoint {load_path} does not exist"
-            loaded_state = torch.load(load_path, map_location="cpu")
-            # load the checkpoints for pipeline, optimizers, and gradient scalar
-            pipeline.load_pipeline(loaded_state["pipeline"])
-            print(f"done loading checkpoint from {load_path}")
         else:
-            print("No checkpoints to load, training from scratch")
+            raise ValueError("No checkpoints to load, training from scratch")
 
-        self.model_cache[str(load_dir) + str(load_step)] = pipeline.model
-        
-        def get_network_memory_size(model):
-            total_params = 0
-
-            # Iterate through all parameters of the model
-            for param in model.parameters():
-                # Multiply the size of each parameter by its number of elements
-                total_params += torch.numel(param) * param.element_size()
-
-            return total_params / (1024**2)  # Convert to megabytes (MB)
-        
-        CONSOLE.print(f"Model size: {get_network_memory_size(pipeline.model)} MB")
-        return pipeline.model
+        return load_path

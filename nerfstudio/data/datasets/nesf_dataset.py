@@ -5,7 +5,9 @@ from torch.utils.data import Dataset
 
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.datasets.base_dataset import InputDataset
+from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
+from nerfstudio.models.nerfacto import NerfactoModelConfig
 from nerfstudio.utils.nesf_utils import get_memory_usage
 
 
@@ -19,8 +21,8 @@ class NesfItemDataset(InputDataset):
 
     def __init__(self, dataparser_outputs: DataparserOutputs, scale_factor: float = 1):
         super().__init__(dataparser_outputs, scale_factor)
-        assert "model" in dataparser_outputs.metadata
-        self.model = dataparser_outputs.metadata["model"]
+        assert "model_path" in dataparser_outputs.metadata
+        self.model_path = dataparser_outputs.metadata["model_path"]
         self.semantics = dataparser_outputs.metadata["semantics"]
         self.mask_indices = torch.tensor(
             [self.semantics.classes.index(mask_class) for mask_class in self.semantics.mask_classes]
@@ -34,8 +36,9 @@ class NesfItemDataset(InputDataset):
         )
         if "mask" in data.keys():
             mask = mask & data["mask"]
-        return {"model": self.model, "semantics": semantic_label}
-
+            
+        return {"model_path": str(self.model_path), "semantics": semantic_label}
+    
 
 class NesfDataset(Dataset):
     def __init__(self, datasets: List[NesfItemDataset], main_set: int = 0):

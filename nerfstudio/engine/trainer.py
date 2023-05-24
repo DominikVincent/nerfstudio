@@ -33,6 +33,7 @@ from typing_extensions import Literal
 
 import wandb
 from nerfstudio.configs.experiment_config import ExperimentConfig
+from nerfstudio.data.datamanagers.nesf_datamanager import load_model
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.engine.callbacks import (
     TrainingCallback,
@@ -166,7 +167,9 @@ class Trainer:
         )
 
         if isinstance(self.pipeline.model, NeuralSemanticFieldModel):
-            self.pipeline.model.set_model(self.pipeline.datamanager.train_dataset.current_set.model)
+            model_path = self.pipeline.datamanager.train_dataset.current_set.model_path
+            model = load_model(model_path)
+            self.pipeline.model.set_model(model)
 
     def setup_optimizers(self) -> Optimizers:
         """Helper to set up the optimizers

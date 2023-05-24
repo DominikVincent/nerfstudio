@@ -29,6 +29,7 @@ from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManagerConf
 from nerfstudio.data.datamanagers.nesf_datamanager import (
     NesfDataManager,
     NesfDataManagerConfig,
+    load_model,
 )
 from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes
 from nerfstudio.models.base_model import Model, ModelConfig
@@ -58,7 +59,7 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """how many images should be evaluated per scene when evaluating all images. -1 means all"""
     save_images = False
     """save images during all image evaluation"""
-    images_to_sample_during_eval_image: int = 4
+    images_to_sample_during_eval_image: int = 8
 
 
 class NesfPipeline(Pipeline):
@@ -129,12 +130,16 @@ class NesfPipeline(Pipeline):
             step: current iteration step to update sampler if using DDP (distributed)
         """
         time0 = time()
-        self.datamanager.models_to_cpu(step)
+        # self.datamanager.models_to_cpu(step)
         time1 = time()
+        print("ASER1")
         ray_bundle, batch = self.datamanager.next_train(step)
         time2 = time()
+        print("ASER2")
+        
        
         transformer_model_outputs = self.model(ray_bundle, batch)
+        print("ASER3")
 
         time3 = time()
 
@@ -171,7 +176,7 @@ class NesfPipeline(Pipeline):
         Args:
             step: current iteration step
         """
-        self.datamanager.models_to_cpu(step)
+        # self.datamanager.models_to_cpu(step)
         self.eval()
         ray_bundle, batch = self.datamanager.next_eval(step)
         transformer_model_outputs = self.model(ray_bundle, batch)
@@ -199,6 +204,8 @@ class NesfPipeline(Pipeline):
         else:
             image_idx, model_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
 
+        # load the model 
+        batch["model"] =  load_model(batch["model_path"]).to(self.device, non_blocking=True)
         batch["image_idx"] = image_idx
         batch["model_idx"] = model_idx
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
@@ -224,6 +231,7 @@ class NesfPipeline(Pipeline):
             save_path: path to save the images to. if None, do not save images.
         """
         self.eval()
+        model_cache = {}
         metrics_dict_list = []
         num_images = (
             min(
@@ -259,7 +267,13 @@ class NesfPipeline(Pipeline):
                     batch["model_idx"] = model_idx
                     batch["image_idx"] = batch["image_idx"]
                     print("model_idx", model_idx, "image_idx", batch["image_idx"])
-
+                    
+                    if batch["model_path"] not in model_cache:
+                        batch["model"] = load_model(batch["model_path"]).to(self.device, non_blocking=True)
+                        model_cache[batch["model_path"]] = batch["model"]
+                    else:
+                        batch["model"] = model_cache[batch["model_path"]].to(self.device, non_blocking=True)
+                    batch["model"].to(self.device, non_blocking=True)
                     if i >= self.config.images_per_all_evaluation and self.config.images_per_all_evaluation >= 0:
                         break
                     # time this the following line
@@ -268,6 +282,10 @@ class NesfPipeline(Pipeline):
                     num_rays = height * width
                     outputs = self.model.get_outputs_for_camera_ray_bundle(ray_bundles, batch)
                     metrics_dict, image_dict = self.model.get_image_metrics_and_images(outputs, batch)
+                    
+                    # move model back to cpu to not waste vram
+                    batch["model"].to("cpu", non_blocking=True)
+                    
                     assert "num_rays_per_sec" not in metrics_dict
                     metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)
                     fps_str = "fps"
@@ -295,6 +313,9 @@ class NesfPipeline(Pipeline):
 
                             if "entropy" in image_dict:
                                 writer.put_image("entropy", image_dict["entropy"], step=step)
+                            
+                            if "sample_mask" in image_dict:
+                                writer.put_image("sample_mask", image_dict["sample_mask"], step=step)
                                 
                         img = img.cpu().numpy()
                         if save_path is not None:

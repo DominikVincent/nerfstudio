@@ -296,17 +296,6 @@ class NeuralSemanticFieldModel(Model):
         # TODO query NeRF
         # TODO do feature conversion + MLP
         # TODO do semantic rendering
-        def get_fake_output(size: int):
-            # gt_value = torch.zeros(size, self.learned_low_density_value.shape[0]).to(self.learned_low_density_value.device)
-            pred_value = self.learned_low_density_value.repeat(size, 1)
-            outputs = {
-                "rgb": pred_value,
-                "density": pred_value,
-                "semantics": pred_value,
-            }
-            return outputs
-        outputs = get_fake_output(ray_bundle.shape[0])
-        return outputs
         
         model: Model = self.get_model(batch)
 

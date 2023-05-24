@@ -31,8 +31,11 @@ def run_nesf(vis: str = "wandb"):
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_normal_nesf_train_10.json"
     # )    
+    # data_config_path = Path(
+    #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_10_10.json"
+    # )
     data_config_path = Path(
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_10_10.json"
+        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_10_270.json"
     )
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_1_270.json"
@@ -59,8 +62,8 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.machine.num_gpus = 1
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
-    trainConfig.steps_per_eval_batch = 100
-    trainConfig.steps_per_eval_image = 250
+    trainConfig.steps_per_eval_batch = 10
+    trainConfig.steps_per_eval_image = 20
     
     trainConfig.pipeline.datamanager.use_sample_mask = False
     trainConfig.pipeline.datamanager.sample_mask_ground_percentage = 0.2
@@ -70,9 +73,9 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.eval_num_images_to_sample_from = 8
     trainConfig.pipeline.datamanager.eval_num_times_to_repeat_images = 1
     
-    trainConfig.pipeline.model.pretrain = False
-    trainConfig.pipeline.model.mode = "semantics"
-    trainConfig.pipeline.model.batching_mode = "sliced"
+    trainConfig.pipeline.model.pretrain = True
+    trainConfig.pipeline.model.mode = "rgb"
+    trainConfig.pipeline.model.batching_mode = "off"
     trainConfig.pipeline.model.batch_size = 2048
     
     trainConfig.pipeline.model.sampler.surface_sampling = True
@@ -93,7 +96,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.feature_generator_config.use_dir_encoding = True
     trainConfig.pipeline.model.feature_generator_config.use_normal_encoding = False
     
-    trainConfig.pipeline.model.feature_transformer_model = "custom"
+    trainConfig.pipeline.model.feature_transformer_model = "stratified"
     trainConfig.pipeline.model.feature_transformer_custom_config.num_layers = 6
     trainConfig.pipeline.model.feature_transformer_custom_config.num_heads = 8
     trainConfig.pipeline.model.feature_transformer_custom_config.dim_feed_forward = 128
@@ -102,12 +105,20 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.feature_transformer_stratified_config.grid_size = 0.006
     trainConfig.pipeline.model.feature_transformer_stratified_config.window_size = 5
     trainConfig.pipeline.model.feature_transformer_stratified_config.quant_size = 0.005
+    trainConfig.pipeline.model.feature_transformer_stratified_config.num_layers = 4
     
-    trainConfig.pipeline.model.feature_decoder_model = "custom"
-    trainConfig.pipeline.model.feature_decoder_custom_config.num_layers = 1
+    
+    trainConfig.pipeline.model.feature_decoder_model = "stratified"
+    trainConfig.pipeline.model.feature_decoder_custom_config.num_layers = 2
     trainConfig.pipeline.model.feature_decoder_custom_config.num_heads = 4
     trainConfig.pipeline.model.feature_decoder_custom_config.dim_feed_forward = 128
     trainConfig.pipeline.model.feature_decoder_custom_config.feature_dim = 128
+    
+    trainConfig.pipeline.model.feature_decoder_stratified_config.grid_size = 0.006
+    trainConfig.pipeline.model.feature_decoder_stratified_config.window_size = 5
+    trainConfig.pipeline.model.feature_decoder_stratified_config.quant_size = 0.005
+    trainConfig.pipeline.model.feature_decoder_stratified_config.num_layers = 3
+    trainConfig.pipeline.model.feature_decoder_stratified_config.depths = [2,2,4]
     
     trainConfig.set_timestamp()
     trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data

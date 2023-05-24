@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
+from itertools import cycle
 from pathlib import Path
+from queue import Queue
+from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 import numpy as np
@@ -12,7 +16,7 @@ import plotly.express as px
 import torch
 from rich.console import Console
 from torch.nn import Parameter
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from typing_extensions import Literal
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
@@ -36,6 +40,7 @@ from nerfstudio.data.utils.dataloaders import (
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
 from nerfstudio.model_components.ray_generators import RayGenerator
 from nerfstudio.utils import profiler
+from nerfstudio.utils.misc import get_dict_to_torch
 from nerfstudio.utils.nesf_utils import get_memory_usage
 
 CONSOLE = Console(width=120)
@@ -84,7 +89,8 @@ class NesfDataManagerConfig(InstantiateConfig):
     """If yes it will generate a sampling mask based on the semantic map and only sample non ground pixels plus some randomly sampled ground pixels"""
     sample_mask_ground_percentage: float = 1.0
     """The number of ground pixels to sample in the sampling mask randomly set to true. 1.0 means all pixels uniformly."""
-    
+
+
 class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     """Basic stored data manager implementation.
 
@@ -121,6 +127,10 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.sampler = None
         self.test_mode = test_mode
         self.test_split = "test" if test_mode in ["test", "inference"] else "val"
+        self.last_model = None
+        self.last_model_idx = None
+        self.last_eval_model = None
+        self.last_eval_model_idx = None  
         CONSOLE.print(f"Datamanager mem usage: ", get_memory_usage())
         self.dataparser: Nesf = self.config.dataparser.setup()
         CONSOLE.print(f"Datamanager after setup usage: ", get_memory_usage())
@@ -133,7 +143,6 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.train_dataset = self.train_datasets
         self.eval_dataset = self.eval_datasets
         self.eval_image_model = 0
-        self.eval_model = 0
         super().__init__()
 
     def create_train_datasets(self) -> NesfDataset:
@@ -171,23 +180,14 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         """Sets up the data loaders for training"""
         assert self.train_datasets is not None
         CONSOLE.print("Setting up training dataset...")
-        self.train_image_dataloaders = [
-            CacheDataloader(
-                train_dataset,
-                num_images_to_sample_from=self.config.train_num_images_to_sample_from,
-                num_times_to_repeat_images=self.config.train_num_times_to_repeat_images,
-                device=self.device,
-                num_workers=1,
-                pin_memory=True,
-                collate_fn=self.config.collate_fn,
-                prefetch_factor=1
-            )
-            for train_dataset in self.train_datasets
-        ]
-        
-        self.iter_train_image_dataloaders = [
-            iter(train_image_dataloader) for train_image_dataloader in self.train_image_dataloaders
-        ]
+       
+        self.meta_train_image_dataloader = PrefetchLoader(
+            self.train_datasets,
+            batch_size=self.config.train_num_images_to_sample_from,
+            prefetch_batches=10,
+            collate_fn=self.config.collate_fn,
+            device=self.device,
+        )
 
         self.train_pixel_samplers = [
             self._get_pixel_sampler(train_dataset, self.config.train_num_rays_per_batch)
@@ -213,7 +213,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             for train_dataset, train_camera_optimizer in zip(self.train_datasets, self.train_camera_optimizers)
         ]
         CONSOLE.print(f"Datamanager mem usage end of train setup: ", get_memory_usage())
-        
+
         return
 
     def setup_eval(self):
@@ -236,6 +236,14 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.iter_eval_image_dataloaders = [
             iter(eval_image_dataloader) for eval_image_dataloader in self.eval_image_dataloaders
         ]
+        
+        self.meta_eval_image_dataloader = PrefetchLoader(
+            self.eval_datasets,
+            batch_size=self.config.train_num_images_to_sample_from,
+            prefetch_batches=2,
+            collate_fn=self.config.collate_fn,
+            device=self.device,
+        )
 
         print("iters created")
         self.eval_pixel_samplers = [
@@ -250,7 +258,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             for eval_dataset, train_camera_optimizer in zip(self.eval_datasets, self.train_camera_optimizers)
         ]
 
-        # for loading full images
+        # for loading full images, used for all image evaluation
         self.fixed_indices_eval_dataloaders = [
             FixedIndicesEvalDataloader(
                 input_dataset=eval_dataset,
@@ -269,16 +277,16 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             )
             for eval_dataset in self.eval_datasets
         ]
-        
+
         CONSOLE.print(f"Datamanager mem usage end of eval setup: ", get_memory_usage())
-        
 
     def debug_stats(self):
         non_gpu = []
         for i, dataset in enumerate(self.train_datasets):
             dataset = cast(NesfItemDataset, dataset)
-            if dataset.model.device.type != "cpu":
-                non_gpu.append(i)
+            # if dataset.model.device.type != "cpu":
+            #     non_gpu.append(i)
+            print(i, dataset.model.device)
         print("Non gpu: ", non_gpu)
 
     def models_to_cpu(self, step):
@@ -288,15 +296,16 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
             # print(i, model_idx, dataset.model.device)
             if i == model_idx:
                 continue
-            
+
             dataset = cast(NesfItemDataset, dataset)
-            if dataset.model.device.type != "cpu": 
+            if dataset.model.device.type != "cpu":
                 dataset.model.to("cpu", non_blocking=True)
-            
-            
+
     def move_model_to_cpu(self, dataset):
         dataset.model.to("cpu", non_blocking=True)
         
+    
+
     def models_to_cpu_threading(self, step):
         """Moves all models who shouldn't be active to CPU."""
         model_idx = self.step_to_dataset(step)
@@ -306,24 +315,39 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
                 thread = threading.Thread(target=self.move_model_to_cpu, args=(dataset,))
                 thread.start()
 
-
     @profiler.time_function
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
+        if self.last_model is not None:
+            with self.meta_train_image_dataloader.lock:
+                if self.last_model_idx not in self.meta_train_image_dataloader.queued_idx:
+                    self.last_model.to("cpu", non_blocking=True)
+            
         CONSOLE.print("Before next train mem usage: ", get_memory_usage())
         self.train_count += 1
-        model_idx = self.step_to_dataset(step)
         time1 = time.time()
-        image_batch: dict = next(self.iter_train_image_dataloaders[model_idx])
+        # image_batch: dict = next(self.meta_train_image_dataloader)
+        image_batch: dict = next(self.meta_train_image_dataloader)
+        assert image_batch["model"][0].device != "cpu"
+        model_idx = image_batch["model_idx"]
+        del image_batch["model_idx"]
+        self.last_model = image_batch["model"][0]
+        self.last_model_idx = model_idx
+        print("Processing :", model_idx)
+        
+        # model_idx = self.step_to_dataset(step)
+        # image_batch: dict = next(self.iter_train_image_dataloaders[model_idx])
+        
+
         time2 = time.time()
         if self.config.use_sample_mask:
-            semantic_mask = image_batch["semantics"] # [N, H, W]
+            semantic_mask = image_batch["semantics"]  # [N, H, W]
             # count the number of pixels per class
             # pixels_per_class = torch.bincount(semantic_mask.flatten(), minlength=13)
             # CONSOLE.print("Class counts percentage: ", (pixels_per_class/semantic_mask.numel()).p)
-            
+
             mask = semantic_mask >= 1
-            
+
             # add random noise to the mask
             total_pixels = mask.numel()
             num_true = int(total_pixels * self.config.sample_mask_ground_percentage)
@@ -337,21 +361,20 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
 
             # Reshape the flattened tensor back to the desired shape
             mask_salt_and_pepper = flat_mask.reshape(mask.shape)
-            
+
             # mask_background = mask_salt_and_pepper & (semantic_mask == 0)
             # print("mask_background ratio: ", (mask_background.sum() / mask_background[0].numel()).item())
 
             mask = mask | mask_salt_and_pepper
-            
+
             image_batch["mask"] = mask
-            
+
             # mask_d = mask.detach().cpu().numpy()[0].squeeze()
             # fig = px.imshow(mask_d)
             # fig.show()
             # fig = px.imshow(image_batch["image"][0])
             # fig.show()
-            
-            
+
         assert self.train_pixel_samplers[model_idx] is not None
         batch = self.train_pixel_samplers[model_idx].sample(image_batch)
         time3 = time.time()
@@ -363,21 +386,29 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         assert str(batch["image"].device) == "cpu"
         assert str(batch["semantics"].device) == "cpu"
         assert str(batch["indices"].device) == "cpu"
-        
+
         CONSOLE.print(f"Next Train - get_batch: {time2 - time1}")
         CONSOLE.print(f"Next Train - sample pixels: {time3 - time2}")
         CONSOLE.print(f"Next Train - ray generation: {time4 - time3}")
         CONSOLE.print("After next train mem usage: ", get_memory_usage())
-        
+
         return ray_bundle, batch
 
     def next_eval(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the eval dataloader."""
-        self.eval_count += 1
-        model_idx = self.eval_model % self.eval_datasets.set_count()
+        if self.last_eval_model is not None:
+            with self.meta_eval_image_dataloader.lock:
+                if self.last_eval_model_idx not in self.meta_eval_image_dataloader.queued_idx:
+                    self.last_eval_model.to("cpu", non_blocking=True)
+                    
+        image_batch: dict = next(self.meta_eval_image_dataloader)
+        assert image_batch["model"][0].device != "cpu"
+        model_idx = image_batch["model_idx"]
+        del image_batch["model_idx"]
+        self.last_eval_model = image_batch["model"][0]
+        self.last_eval_model_idx = model_idx
         CONSOLE.print(f"Eval model scene {model_idx}")
-        self.eval_model += 1
-        image_batch = next(self.iter_eval_image_dataloaders[model_idx])
+        
         assert self.eval_pixel_samplers[model_idx] is not None
         batch = self.eval_pixel_samplers[model_idx].sample(image_batch)
         ray_indices = batch["indices"]
@@ -413,6 +444,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
                 model_idxs.append(model_idx)
                 ray_bundles.append(camera_ray_bundle)
                 batches.append(batch)
+                
         return image_idxs, model_idxs, ray_bundles, batches
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:  # pylint: disable=no-self-use
@@ -443,3 +475,96 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
 
 def get_dir_of_path(path: Path) -> str:
     return str(path.parent.name)
+from nerfstudio.data.scene_box import SceneBox
+from nerfstudio.models.nerfacto import NerfactoModelConfig
+
+
+class PrefetchLoader:
+    def __init__(self, datasets, batch_size, prefetch_batches, collate_fn, device):
+        self.datasets = cycle(enumerate(datasets))
+        self.batch_size = batch_size
+        self.prefetch_batches = prefetch_batches
+        self.executor = ThreadPoolExecutor(max_workers=prefetch_batches)
+        self.queue = Queue(maxsize=prefetch_batches*2)
+        self.collate_fn = collate_fn
+        self.device = device
+        self.lock = Lock()
+        self.queued_idx = []  # to check the existence of a dataset
+
+    def __iter__(self):
+        return self
+
+    def prefetch(self):
+        idx, dataset = next(self.datasets)
+        print("prefetching idx:", idx)
+        loader = DataLoader(dataset, batch_size=self.batch_size, collate_fn=self.collate_fn, shuffle=True)
+        batch = next(iter(loader))
+        batch["model_idx"] = idx
+        batch["model"] = [load_model(batch["model_path"][0])] * self.batch_size
+        del batch["model_path"]
+        batch = get_dict_to_torch(batch, device=self.device, exclude=["image", "semantics"])
+        with self.lock:
+            print("LOCK: adding to queue")
+            self.queue.put(batch)
+            print("LOCK: adding idx to queue")
+            self.queued_idx.append(idx)
+            print("LOCK: added idx to queue")
+    
+    def __next__(self):
+        print("next")
+        time1 = time.time()
+        if self.queue.qsize() < self.prefetch_batches:
+            batches_to_prefetch = max(self.prefetch_batches - self.queue.qsize(), 0)
+            print("Prefetching", batches_to_prefetch, "batches")
+            futures = [self.executor.submit(self.prefetch) for _ in range(batches_to_prefetch)]
+            # futures = [self.prefetch() for _ in range(self.prefetch_batches - self.queue.qsize())]
+        
+        time2 = time.time()
+        print("next - waiting for queue")
+        batch = self.queue.get()
+        print("next - got from queue")
+        with self.lock:
+            print("LOCK: removing idx from queue")
+            self.queued_idx.remove(batch["model_idx"])
+            print("LOCK: removed idx from queue")
+        time3 = time.time()
+        # batch = get_dict_to_torch(batch, device=self.device, exclude=["image", "semantics"])
+
+        time4 = time.time()
+        CONSOLE.print("queuing up took", time2 - time1)
+        CONSOLE.print("getting from queue took", time3 - time2)
+        CONSOLE.print("to torch took", time4 - time3)
+
+        return batch
+
+def load_model(model_path):
+    time1 = time.time()
+    pred_normals = "normal" in str(model_path)
+    model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15,
+                                    predict_normals=pred_normals
+                                    )
+    time2 = time.time()
+    
+    # scene box will be loaded from state
+    # num_train_data is 271 for our models, not relevant during eval anyway
+    scene_box = SceneBox(aabb = torch.zeros((2,3)))
+
+    model = model.setup(scene_box=scene_box,
+            num_train_data=271,
+            metadata={})
+    time3 = time.time()
+    loaded_state = torch.load(model_path, map_location="cpu")["pipeline"]
+    
+    state = {key.replace("module.", ""): value for key, value in loaded_state.items()}
+    state = {key.replace("_model.", ""): value for key, value in state.items()}
+    time4 = time.time()
+    missing_keys, unexpected_keys = model.load_state_dict(state, strict=True)
+    print("Missing keys: {}".format(missing_keys))
+    print("Unexpected keys: {}".format(unexpected_keys))
+    time5 = time.time()
+    print("Load Model - loading model took", time2 - time1)
+    print("Load Model - setup took", time3 - time2)
+    print("Load Model - loading state took", time4 - time3)
+    print("Load Model - loading state dict took", time5 - time4)
+    
+    return model
