@@ -106,6 +106,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
     """Show the generated image."""
     log_confusion_to_wandb: bool = True
     plot_confusion: bool = False
+    visualize_semantic_pc: bool = False
 
 
 def get_wandb_histogram(tensor):
@@ -292,11 +293,6 @@ class NeuralSemanticFieldModel(Model):
 
     @profiler.time_function
     def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None):
-        # TODO implement UNET
-        # TODO query NeRF
-        # TODO do feature conversion + MLP
-        # TODO do semantic rendering
-        
         model: Model = self.get_model(batch)
 
         # all but density mask are by filtered dimension
@@ -415,6 +411,8 @@ class NeuralSemanticFieldModel(Model):
             semantics = torch.zeros((*density_mask.shape, len(self.semantics.classes)), device=self.device)  # 64, 48, 6
             weights_all = torch.zeros((*density_mask.shape, 1), device=self.device)  # 64, 48, 6
 
+            if ray_bundle.nears is not None:
+                weights = weights + 1.0
             # print(semantics.numel() * semantics.element_size() / 1024**2)
 
             # print(
@@ -511,6 +509,12 @@ class NeuralSemanticFieldModel(Model):
             print("Rendering normals all", time10-time9)
         else:
             raise ValueError("Unknown mode: " + self.config.mode)
+        
+        if self.config.visualize_semantic_pc:
+            assert self.config.mode == "semantics"
+            semantic_labels = torch.argmax(outputs["semantics"][density_mask.squeeze()].unsqueeze(0), dim=-1)
+            visualize_point_batch(transform_batch["points_xyz"], classes=semantic_labels)
+            visualize_point_batch(transform_batch["points_xyz"], classes=torch.argmax(field_outputs, dim=-1))
         
         outputs["density_mask"] = density_mask
         torch.cuda.empty_cache()
@@ -692,7 +696,7 @@ class NeuralSemanticFieldModel(Model):
 
             if not use_all_pixels:
                 ordered_output_tensor = ordered_output_tensor[: image_height * image_width]
-            outputs[output_name] = ordered_output_tensor.view(image_height, image_width, -1)  # type: ignore
+            outputs[output_name] = ordered_output_tensor.view(image_height, image_width, -1)  # type: ignor<e
         return outputs
 
     def get_image_metrics_and_images(

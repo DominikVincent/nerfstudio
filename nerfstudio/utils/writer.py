@@ -199,7 +199,7 @@ def setup_local_writer(config: cfg.LoggingConfig, max_iter: int, banner_messages
 
 
 @check_main_thread
-def setup_event_writer(is_wandb_enabled: bool, is_tensorboard_enabled: bool, log_dir: Path) -> None:
+def setup_event_writer(is_wandb_enabled: bool, is_tensorboard_enabled: bool, log_dir: Path, wandb_project_name: str) -> None:
     """Initialization of all event writers specified in config
 
     Args:
@@ -209,7 +209,7 @@ def setup_event_writer(is_wandb_enabled: bool, is_tensorboard_enabled: bool, log
     """
     using_event_writer = False
     if is_wandb_enabled:
-        curr_writer = WandbWriter(log_dir=log_dir)
+        curr_writer = WandbWriter(log_dir=log_dir, wandb_project_name=wandb_project_name)
         EVENT_WRITERS.append(curr_writer)
         using_event_writer = True
     if is_tensorboard_enabled:
@@ -293,11 +293,12 @@ class TimeWriter:
 class WandbWriter(Writer):
     """WandDB Writer Class"""
 
-    def __init__(self, log_dir: Path):
+    def __init__(self, log_dir: Path, wandb_project_name: str):
         if wandb.run is None:
             # wandb.init(project="mae-models-project", dir=str(log_dir), reinit=True)
             # wandb.init(project="nesf-models-project", dir=str(log_dir), reinit=True)
-            wandb.init(project="toybox-5-nesf", dir=str(log_dir), reinit=True)
+            wandb.init(project=wandb_project_name, dir=str(log_dir), reinit=True)
+            # wandb.init(project="toybox-5-nesf", dir=str(log_dir), reinit=True)
         print(wandb.run)
         print("Run ID:", wandb.run.id)
         print("Run name:", wandb.run.name)

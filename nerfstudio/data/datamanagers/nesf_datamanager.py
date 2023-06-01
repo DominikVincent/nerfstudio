@@ -303,8 +303,6 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
 
     def move_model_to_cpu(self, dataset):
         dataset.model.to("cpu", non_blocking=True)
-        
-    
 
     def models_to_cpu_threading(self, step):
         """Moves all models who shouldn't be active to CPU."""
@@ -319,7 +317,10 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         if self.last_model is not None:
+            print("Infront of lock next_train")
             with self.meta_train_image_dataloader.lock:
+                print("inside of lock next_train")
+                
                 if self.last_model_idx not in self.meta_train_image_dataloader.queued_idx:
                     self.last_model.to("cpu", non_blocking=True)
             
@@ -481,11 +482,12 @@ from nerfstudio.models.nerfacto import NerfactoModelConfig
 
 class PrefetchLoader:
     def __init__(self, datasets, batch_size, prefetch_batches, collate_fn, device):
+        self.model_configs = [datasets.get_set(i).model_config for i in range(datasets.set_count()) ]
         self.datasets = cycle(enumerate(datasets))
         self.batch_size = batch_size
         self.prefetch_batches = prefetch_batches
         self.executor = ThreadPoolExecutor(max_workers=prefetch_batches)
-        self.queue = Queue(maxsize=prefetch_batches*2)
+        self.queue = Queue()
         self.collate_fn = collate_fn
         self.device = device
         self.lock = Lock()
@@ -496,37 +498,33 @@ class PrefetchLoader:
 
     def prefetch(self):
         idx, dataset = next(self.datasets)
-        print("prefetching idx:", idx)
         loader = DataLoader(dataset, batch_size=self.batch_size, collate_fn=self.collate_fn, shuffle=True)
         batch = next(iter(loader))
         batch["model_idx"] = idx
-        batch["model"] = [load_model(batch["model_path"][0])] * self.batch_size
+        model_config = self.model_configs[batch["model_idx"]]
+        batch["model"] = [load_model(batch["model_path"][0], model_config)] * self.batch_size
         del batch["model_path"]
         batch = get_dict_to_torch(batch, device=self.device, exclude=["image", "semantics"])
+        print("infront of prefetch lock")
         with self.lock:
-            print("LOCK: adding to queue")
+            print("in prefetch lock")
             self.queue.put(batch)
-            print("LOCK: adding idx to queue")
             self.queued_idx.append(idx)
-            print("LOCK: added idx to queue")
-    
+        print("after prefetch lock", idx)
+        
     def __next__(self):
         print("next")
         time1 = time.time()
         if self.queue.qsize() < self.prefetch_batches:
             batches_to_prefetch = max(self.prefetch_batches - self.queue.qsize(), 0)
-            print("Prefetching", batches_to_prefetch, "batches")
+            print("Prefetching", batches_to_prefetch, "batches queue size", self.queue.qsize())
             futures = [self.executor.submit(self.prefetch) for _ in range(batches_to_prefetch)]
             # futures = [self.prefetch() for _ in range(self.prefetch_batches - self.queue.qsize())]
         
         time2 = time.time()
-        print("next - waiting for queue")
         batch = self.queue.get()
-        print("next - got from queue")
         with self.lock:
-            print("LOCK: removing idx from queue")
             self.queued_idx.remove(batch["model_idx"])
-            print("LOCK: removed idx from queue")
         time3 = time.time()
         # batch = get_dict_to_torch(batch, device=self.device, exclude=["image", "semantics"])
 
@@ -537,12 +535,13 @@ class PrefetchLoader:
 
         return batch
 
-def load_model(model_path):
+def load_model(model_path, model_config):
     time1 = time.time()
     pred_normals = "normal" in str(model_path)
     model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15,
-                                    predict_normals=pred_normals
-                                    )
+                                    predict_normals=pred_normals,
+                                    **model_config)
+                                    
     time2 = time.time()
     
     # scene box will be loaded from state
@@ -559,12 +558,13 @@ def load_model(model_path):
     state = {key.replace("_model.", ""): value for key, value in state.items()}
     time4 = time.time()
     missing_keys, unexpected_keys = model.load_state_dict(state, strict=True)
-    print("Missing keys: {}".format(missing_keys))
-    print("Unexpected keys: {}".format(unexpected_keys))
+    assert missing_keys == []
+    assert unexpected_keys == []
+    
     time5 = time.time()
-    print("Load Model - loading model took", time2 - time1)
-    print("Load Model - setup took", time3 - time2)
-    print("Load Model - loading state took", time4 - time3)
-    print("Load Model - loading state dict took", time5 - time4)
+    # print("Load Model - loading model took", time2 - time1)
+    # print("Load Model - setup took", time3 - time2)
+    # print("Load Model - loading state took", time4 - time3)
+    # print("Load Model - loading state dict took", time5 - time4)
     
     return model

@@ -47,15 +47,17 @@ class ComputePSNR:
         print(config)
         assert self.output_path.suffix == ".json"
         if self.save_images:
+            metrics_3d_dict = pipeline.get_average_eval_image_metrics(save_path=self.output_path.parent, log_to_wandb=self.use_wandb, miou_3d=True)
             metrics_dict = pipeline.get_average_eval_image_metrics(
-                save_path=self.output_path.parent, log_to_wandb=self.use_wandb
+                save_path=self.output_path.parent, log_to_wandb=self.use_wandb, miou_3d=False
             )
         else:
-            metrics_dict = pipeline.get_average_eval_image_metrics(log_to_wandb=self.use_wandb)
+            metrics_3d_dict = pipeline.get_average_eval_image_metrics(log_to_wandb=self.use_wandb, miou_3d=True)
+            metrics_dict = pipeline.get_average_eval_image_metrics(log_to_wandb=self.use_wandb, miou_3d=False)
 
         # log the final results
-        print(metrics_dict)
         writer.put_dict("test", metrics_dict, step=1000000)
+        writer.put_dict("test_3d", metrics_3d_dict, step=1000000)
         writer.write_out_storage()
 
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +67,9 @@ class ComputePSNR:
             "method_name": config.method_name,
             "checkpoint": str(checkpoint_path),
             "results": metrics_dict,
+            "results_3d": metrics_3d_dict,
         }
+        print(benchmark_info)
         # Save output to output file
         self.output_path.write_text(json.dumps(benchmark_info, indent=2), "utf8")
         CONSOLE.print(f"Saved results to: {self.output_path}")

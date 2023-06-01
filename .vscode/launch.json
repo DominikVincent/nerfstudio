@@ -112,7 +112,8 @@
       "console": "integratedTerminal",
       "env": {
         "CUDA_LAUNCH_BLOCKING": "1",
-        "CUDA_VISIBLE_DEVICES": "0"
+        "CUDA_VISIBLE_DEVICES": "0",
+        // "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb=1024"
       },
       "justMyCode": false
   },
@@ -133,7 +134,7 @@
       "type": "python",
       "request": "launch",
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/train.py",
-      "args": ["nerfacto", "--data", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nerfstudio/poster", "--vis", "wandb"],
+      "args": ["nerfacto", "--data", "/data/vision/polina/projects/wmh/dhollidt/datasets/toybox-5/0/", "--vis", "tensorboard"],
       "console": "integratedTerminal",
       "justMyCode": false
   },
@@ -149,7 +150,7 @@
         "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-05-17_182018/auto_eval.json", 
         "--use-wandb", 
         "--name", 
-        "test_stratified", 
+        "test_3dmiou", 
       ],
       "console": "integratedTerminal",
       "justMyCode": false,
@@ -276,13 +277,28 @@
     "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/train.py",
     "args": [
       "depth-nerfacto",
-       "--data", "/data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0",
-       "--vis". "viewer"
+      "--vis", "tensorboard", 
+      "--pipeline.datamanager.camera-optimizer.mode", "off",
+      "--save-only-latest-checkpoint", "True",
+      "--pipeline.model.predict-normals", "True",
+      "--max-num-iterations", "16000",
+      "--data", "/data/vision/polina/projects/wmh/dhollidt/datasets/toybox-5/0",
+      "--experiment-name", "0",
+      "--output-dir", "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/",
+      "--pipeline.model.pred-normal-loss-mult", "0.01",
+      "--pipeline.model.is-euclidean-depth", "True",
+      "--pipeline.model.max-res", "1536",
+      "--viewer.skip-openrelay", "True",
+      "--pipeline.model.depth-sigma", "0.001",
+      "--pipeline.model.depth-loss-mult", "0.01",
+      // "--steps-per-eval-batch", "250", 
+      "--steps-per-eval-image", "50"
+      // "--steps-per-log", "50"
   ],
     "console": "integratedTerminal",
     "justMyCode": false,
     "env": {
-       "CUDA_VISIBLE_DEVICES": "1"
+       "CUDA_VISIBLE_DEVICES": "0"
     }
   },
   {

@@ -13,6 +13,29 @@ from nerfstudio.cameras.rays import RaySamples
 
 CONSOLE = Console(width=120)
 
+CLASS_TO_COLOR = (
+    torch.tensor(
+        [
+            [0, 0, 0],
+            [255, 0, 0],
+            [0, 255, 0],
+            [0, 0, 255],
+            [255, 255, 0],
+            [255, 0, 255],
+            [0, 255, 255],
+            [255, 255, 255],
+            [128, 0, 0],
+            [0, 128, 0],
+            [0, 0, 128],
+            [128, 128, 0],
+            [128, 0, 128],
+            [0, 128, 128],
+            [128, 128, 128],
+        ]
+    )
+    / 255.0
+)
+
 
 def sequential_batching(ray_samples: RaySamples, field_outputs: dict, batch_size: int):
     device = ray_samples.frustums.origins.device
@@ -137,7 +160,7 @@ def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_
     return field_outputs, masking, ids_shuffle, ids_restore, points_padded, directions_padded
 
 
-def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor] = None, normals: torch.Tensor = None):
+def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor] = None, normals: torch.Tensor = None, classes: torch.Tensor = None):
     CONSOLE.print("Visualizing point batch")
     batch_size = points_pad.shape[1]
 
@@ -165,9 +188,17 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
         
     points = torch.empty((0, 3))
     colors = torch.empty((0, 3))
+    if classes is not None:
+        classes = classes.to("cpu")
     for i in range(points_pad.shape[0]):
         points = torch.cat((points, points_pad[i, :, :]))
-        colors = torch.cat((colors, torch.randn((1, 3)).repeat(batch_size, 1) * 255))
+        
+        if classes is not None:
+            labels = classes[i, :]
+            new_colors = torch.index_select(CLASS_TO_COLOR, 0, labels) * 255
+        else:
+            new_colors = torch.randn((batch_size, 3)).repeat(batch_size, 1) * 255
+        colors = torch.cat((colors, new_colors))
     scatter = go.Scatter3d(
         x=points[:, 0],
         y=points[:, 1],

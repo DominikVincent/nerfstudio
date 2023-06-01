@@ -619,3 +619,4 @@ train_scripts/out_nerfacto
 train_scripts/wandb
 
 wandb/
+log/

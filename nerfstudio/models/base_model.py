@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 import torch
-from torch import nn
+from torch import autograd, nn
 from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle
@@ -131,6 +131,7 @@ class Model(nn.Module):
         Args:
             ray_bundle: containing all the information needed to render that ray latents included
         """
+        # with autograd.detect_anomaly():
 
         if self.collider is not None:
             ray_bundle = self.collider(ray_bundle)

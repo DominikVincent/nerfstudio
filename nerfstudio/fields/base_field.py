@@ -20,12 +20,13 @@ from abc import abstractmethod
 from typing import Dict, Optional, Tuple
 
 import torch
-from torch import nn
+from torch import autograd, nn
 from torchtyping import TensorType
 
 from nerfstudio.cameras.rays import Frustums, RaySamples
 from nerfstudio.field_components.field_heads import FieldHeadNames
 
+# torch.autograd.set_detect_anomaly(True)
 
 class Field(nn.Module):
     """Base class for fields."""
@@ -84,8 +85,8 @@ class Field(nn.Module):
                 grad_outputs=torch.ones_like(self._density_before_activation),
                 retain_graph=True,
             )[0]
-        except:
-            print("Error in computing normals. Using random normals instead.")
+        except Exception as e:
+            print("Error in computing normals. Using random normals instead. Error: ", e)
             normals = torch.randn_like(self._sample_locations)
         normals = -torch.nn.functional.normalize(normals, dim=-1)
 

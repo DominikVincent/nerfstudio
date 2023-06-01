@@ -132,17 +132,15 @@ class NesfPipeline(Pipeline):
         time0 = time()
         # self.datamanager.models_to_cpu(step)
         time1 = time()
-        print("ASER1")
+        CONSOLE.print(f"Time to put models to cpu: {time1 - time0}")
         ray_bundle, batch = self.datamanager.next_train(step)
         time2 = time()
-        print("ASER2")
-        
+        CONSOLE.print(f"Time to get next train batch: {time2 - time1}")
        
         transformer_model_outputs = self.model(ray_bundle, batch)
-        print("ASER3")
 
         time3 = time()
-
+        CONSOLE.print(f"Time to run model forward: {time3 - time2}")
         metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch)
         
         time4 = time()
@@ -150,12 +148,8 @@ class NesfPipeline(Pipeline):
         # No need for camera opt param groups as the nerfs are assumed to be fixed already.
 
         loss_dict = self.model.get_loss_dict(transformer_model_outputs, batch, metrics_dict)
-        
         time5 = time()
         
-        CONSOLE.print(f"Time to put models to cpu: {time1 - time0}")
-        CONSOLE.print(f"Time to get next train batch: {time2 - time1}")
-        CONSOLE.print(f"Time to run model forward: {time3 - time2}")
         CONSOLE.print(f"Time to get metrics dict: {time4 - time3}")
         CONSOLE.print(f"Time to get loss dict: {time5 - time4}")
 
@@ -205,7 +199,8 @@ class NesfPipeline(Pipeline):
             image_idx, model_idx, camera_ray_bundle, batch = self.datamanager.next_eval_image(step)
 
         # load the model 
-        batch["model"] =  load_model(batch["model_path"]).to(self.device, non_blocking=True)
+        model_config = self.datamanager.eval_datasets.get_set(model_idx).model_config
+        batch["model"] =  load_model(batch["model_path"], model_config).to(self.device, non_blocking=True)
         batch["image_idx"] = image_idx
         batch["model_idx"] = model_idx
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
@@ -223,13 +218,22 @@ class NesfPipeline(Pipeline):
         return metrics_dict, images_dict
 
     @profiler.time_function
-    def get_average_eval_image_metrics(self, step: Optional[int] = None, save_path: Optional[Path] = None, log_to_wandb=False):
+    def get_average_eval_image_metrics(self, step: Optional[int] = None, save_path: Optional[Path] = None, log_to_wandb=False, miou_3d: bool = False):
         """Iterate over all the images in the eval dataset and get the average.
 
         Returns:
             metrics_dict: dictionary of metrics
             save_path: path to save the images to. if None, do not save images.
+            log_to_wandb: whether to log the images to wandb
+            miou_3d: whether to compute the 3d miou. This means one uses the true 3d pointcloud instead of the predicted one. To just judge the quality of the predicted pointcloud.
         """
+        wandb_suffix = "_3d" if miou_3d else ""
+        if miou_3d:
+            self.model.scene_sampler.clear_ground_cache() # type: ignore # pylint: disable=general-type
+            surface_sampling = self.model.scene_sampler.config.surface_sampling
+            self.model.scene_sampler.config.surface_sampling = False
+            samples_per_ray = self.model.scene_sampler.config.samples_per_ray
+            self.model.scene_sampler.config.samples_per_ray = 1
         self.eval()
         model_cache = {}
         metrics_dict_list = []
@@ -246,7 +250,8 @@ class NesfPipeline(Pipeline):
             if self.config.images_per_all_evaluation >= 0
             else 999999999
         )
-        step = 0
+    
+        step = wandb.run.step if log_to_wandb is not None else 0
         confusion_matrix = None
         with Progress(
             TextColumn("[progress.description]{task.description}"),
@@ -261,15 +266,22 @@ class NesfPipeline(Pipeline):
                 for image_idx, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
                     if image_idx >= self.config.images_to_sample_during_eval_image - 1:
                         break
+                    if miou_3d:
+                        camera_ray_bundle.nears = batch["depth_image"]
+                        camera_ray_bundle.fars = batch["depth_image"]
                     ray_bundles.insert(0, camera_ray_bundle)
                 for i, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
+                    if miou_3d:
+                        camera_ray_bundle.nears = batch["depth_image"]
+                        camera_ray_bundle.fars = batch["depth_image"]
                     ray_bundles.insert(0, camera_ray_bundle)
                     batch["model_idx"] = model_idx
                     batch["image_idx"] = batch["image_idx"]
                     print("model_idx", model_idx, "image_idx", batch["image_idx"])
                     
                     if batch["model_path"] not in model_cache:
-                        batch["model"] = load_model(batch["model_path"]).to(self.device, non_blocking=True)
+                        model_config = self.datamanager.eval_datasets.get_set(model_idx).model_config
+                        batch["model"] = load_model(batch["model_path"], model_config).to(self.device, non_blocking=True)
                         model_cache[batch["model_path"]] = batch["model"]
                     else:
                         batch["model"] = model_cache[batch["model_path"]].to(self.device, non_blocking=True)
@@ -303,23 +315,23 @@ class NesfPipeline(Pipeline):
                     
                     metrics_dict_list.append(metrics_dict)
                     if log_to_wandb:
-                        writer.put_dict("test_image", metrics_dict, step=step)
+                        writer.put_dict("test_image"+wandb_suffix, metrics_dict, step=step)
                         
                     
                     if "img" in image_dict:
                         img = image_dict["img"]
                         if log_to_wandb:
-                            writer.put_image("test_image", img, step=step)
+                            writer.put_image("test_image"+wandb_suffix, img, step=step)
 
                             if "entropy" in image_dict:
-                                writer.put_image("entropy", image_dict["entropy"], step=step)
+                                writer.put_image("entropy"+wandb_suffix, image_dict["entropy"], step=step)
                             
                             if "sample_mask" in image_dict:
-                                writer.put_image("sample_mask", image_dict["sample_mask"], step=step)
+                                writer.put_image("sample_mask"+wandb_suffix, image_dict["sample_mask"], step=step)
                                 
                         img = img.cpu().numpy()
                         if save_path is not None:
-                            file_path = save_path / f"{model_idx:03d}" / f"{batch['image_idx']:04d}.png"
+                            file_path = save_path / f"{model_idx:03d}{wandb_suffix}" / f"{batch['image_idx']:04d}.png"
                             # create the directory if it does not exist
                             if not file_path.parent.exists():
                                 file_path.parent.mkdir(parents=True)
@@ -354,10 +366,16 @@ class NesfPipeline(Pipeline):
                 fig = ff.create_annotated_heatmap(confusion_matrix, x=self.model.semantics.classes, y=self.model.semantics.classes)
                 fig.update_layout(title="Confusion matrix", xaxis_title="Predicted", yaxis_title="Actual")
                 wandb.log(
-                    {"confusion_matrix_plotly_total": fig},
+                    {"confusion_matrix_plotly_total"+wandb_suffix: fig},
                     step=wandb.run.step,
                 )
         self.train()
+        
+        if miou_3d:
+            self.model.scene_sampler.clear_ground_cache() # type: ignore # pylint: disable=general-type
+            self.model.scene_sampler.config.surface_sampling = surface_sampling
+            self.model.scene_sampler.config.samples_per_ray = samples_per_ray
+            
         return metrics_dict
 
     def load_pipeline(self, loaded_state: Dict[str, Any]) -> None:

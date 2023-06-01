@@ -30,8 +30,6 @@ from nerfstudio.utils.nesf_utils import (
     visualize_points,
 )
 
-torch.autograd.set_detect_anomaly(True)
-
 CONSOLE = Console(width=120)
 
 
@@ -41,7 +39,7 @@ class SceneSamplerConfig(InstantiateConfig):
 
     _target: Type = field(default_factory=lambda: SceneSampler)
 
-    samples_per_ray: int = 5
+    samples_per_ray: int = 16
     """How many samples per ray to take"""
     surface_sampling: bool = True
     """Sample only the surface or also the volume"""
@@ -55,7 +53,7 @@ class SceneSamplerConfig(InstantiateConfig):
     """The maximal distance a point can have to z axis to be considered"""
     max_points: int = 2 << 17
     """The maximum number of points to use in one scene. If more are available after filtering, they will be randomly sampled"""
-    get_normals: bool = True
+    get_normals: bool = False
     ground_removal_mode: Literal["ransac", "min", "none"] = "none"
     """Get normals for the samples"""
     ground_points_count: int = 500
@@ -74,7 +72,7 @@ class SceneSampler:
         self.config = config
         
         # maps scene to plane parameters (a, b, c, d)
-        self.plane_cash = {}
+        self.plane_cache = {}
 
     def sample_scene(self, ray_bundle: RayBundle, model: Model, model_idx: int) -> Tuple[RaySamples, torch.Tensor, dict, torch.Tensor, dict]:
         """_summary_
@@ -241,8 +239,8 @@ class SceneSampler:
         points = ray_samples.frustums.get_positions()
         
         
-        if scene_idx in self.plane_cash:
-            a, b, c, d = self.plane_cash[scene_idx]
+        if scene_idx in self.plane_cache:
+            a, b, c, d = self.plane_cache[scene_idx]
         else:
             filtered_points = points[mask]
             # visualize_point_batch(points.cpu().unsqueeze(0))
@@ -260,7 +258,7 @@ class SceneSampler:
             # Extract the parameters of the fitted plane
             # TODO check that c is always -1
             a, b, c, d = model.estimator_.coef_[0], model.estimator_.coef_[1], -1, model.estimator_.intercept_
-            self.plane_cash[scene_idx] = (a, b, c, d)
+            self.plane_cache[scene_idx] = (a, b, c, d)
         
         if c < 0:
             a, b, c, d = -a, -b, -c, -d
@@ -315,6 +313,9 @@ class SceneSampler:
 
         # all but density_mask should have the reduced size
         return ray_samples, weights, field_outputs
+    
+    def clear_ground_cache(self):
+        self.plane_cache = {}
 
 @dataclass
 class MaskerConfig(InstantiateConfig):
@@ -685,7 +686,7 @@ class FeatureGeneratorTorch(nn.Module):
                 visualize_point_batch(transform_batch["points_xyz"])
             a = input("press enter to continue...")
 
-        if self.config.log_point_batch and random.random() < (1 / 5000):
+        if self.config.log_point_batch and random.random() < (1 / 15):
             log_points_to_wandb(transform_batch["points_xyz"])
         
         return out, transform_batch

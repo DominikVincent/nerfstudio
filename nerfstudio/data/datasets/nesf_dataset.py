@@ -6,7 +6,10 @@ from torch.utils.data import Dataset
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.scene_box import SceneBox
-from nerfstudio.data.utils.data_utils import get_semantics_and_mask_tensors_from_path
+from nerfstudio.data.utils.data_utils import (
+    get_depth_image_from_path,
+    get_semantics_and_mask_tensors_from_path,
+)
 from nerfstudio.models.nerfacto import NerfactoModelConfig
 from nerfstudio.utils.nesf_utils import get_memory_usage
 
@@ -22,11 +25,17 @@ class NesfItemDataset(InputDataset):
     def __init__(self, dataparser_outputs: DataparserOutputs, scale_factor: float = 1):
         super().__init__(dataparser_outputs, scale_factor)
         assert "model_path" in dataparser_outputs.metadata
+        self.model_config = dataparser_outputs.metadata["model_config"]
         self.model_path = dataparser_outputs.metadata["model_path"]
         self.semantics = dataparser_outputs.metadata["semantics"]
         self.mask_indices = torch.tensor(
             [self.semantics.classes.index(mask_class) for mask_class in self.semantics.mask_classes]
         ).view(1, 1, -1)
+        
+        # get depth image
+        self.depth_filenames = self.metadata["depth_filenames"]
+        self.depth_unit_scale_factor = self.metadata["depth_unit_scale_factor"]
+        
         print("NesfItemDataset - memory usage: ", get_memory_usage())
 
     def get_metadata(self, data: Dict) -> Dict:
@@ -34,10 +43,20 @@ class NesfItemDataset(InputDataset):
         semantic_label, mask = get_semantics_and_mask_tensors_from_path(
             filepath=filepath, mask_indices=self.mask_indices, scale_factor=self.scale_factor
         )
-        if "mask" in data.keys():
-            mask = mask & data["mask"]
+        # todo if used add to return value
+        # if "mask" in data.keys():
+        #     mask = mask & data["mask"]
             
-        return {"model_path": str(self.model_path), "semantics": semantic_label}
+        # Scale depth images to meter units and also by scaling applied to cameras
+        filepath = self.depth_filenames[data["image_idx"]]
+        height = int(self._dataparser_outputs.cameras.height[data["image_idx"]])
+        width = int(self._dataparser_outputs.cameras.width[data["image_idx"]])
+        scale_factor = self.depth_unit_scale_factor * self._dataparser_outputs.dataparser_scale
+        depth_image = get_depth_image_from_path(
+            filepath=filepath, height=height, width=width, scale_factor=scale_factor
+        ).float()
+            
+        return {"model_path": str(self.model_path), "semantics": semantic_label, "depth_image": depth_image}
     
 
 class NesfDataset(Dataset):

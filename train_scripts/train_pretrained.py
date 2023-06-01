@@ -20,13 +20,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--slurm", help="Use slurm", action="store_true", default=False)
 parser.add_argument("--partition", help="Which slurm partition to use", type=str, default="QRTX5000")
 parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/toybox-5-nesf")
+parser.add_argument("--data", help="Path to a data config if not the default should be used.", type=str)
 
 parser.add_argument("runs", nargs="+", help="The names of the wandb runs to evaluate", type=str)
 
 
 LOG_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/tmp/logs")
 
-def rewrite_config(config_path: Path, name: str):
+def rewrite_config(config_path: Path, name: str, data_config_path: Union[str, None] = None):
     """Rewrites the config of a run from a pretrain config to a semantic config which loads the pretrained weights."""
     # extend path to /config.yml if necessary
     if config_path.is_dir():
@@ -40,14 +41,20 @@ def rewrite_config(config_path: Path, name: str):
     
     config.load_dir = checkpoint_dir
     config.load_pretrained_model = True
+    config.wandb_project_name = "toybox-5-nesf"
     
     # remove the pretraining from the model config
     config.pipeline.model.pretrain = False
     config.pipeline.model.mode = "semantics"
     
+    # update the data path if provided
+    if data_config_path is not None and data_config_path != "":
+        config.pipeline.datamanager.dataparser.data_config = Path(data_config_path)
+        
+    
     # update the save path
     config.base_dir = config.get_base_dir()
-    config.wandb_run_name = "pretrained_" + name
+    config.wandb_run_name = name
     
     out_path = config_path.parent / "auto_semantic_config.yml"
     out_path.write_text(yaml.dump(config), "utf8")
@@ -103,7 +110,7 @@ conda activate nerfstudio2
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p {partition} --mem=70G --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p {partition} --mem=40G --gres=gpu:1 -t 96:60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output
@@ -131,16 +138,17 @@ def runs_eval(
     use_slurm: bool = True,
     eval_config: Union[None, Path] = None,
     partition: str = "QRTX5000",
+    data_config_path: Union[str, None] = None,
 ):
     wandb_runs = get_runs(run_names=runs, project_name=project_name)
     for i, wandb_run in enumerate(wandb_runs):
         path = wandb_run_to_path(wandb_run)
         eval_run = EvalRun(path, "pretrained_" + wandb_run.name, eval_config)
-        rewrite_config(eval_run.path, eval_run.name)
+        rewrite_config(eval_run.path, eval_run.name, data_config_path)
         ns_train(eval_run.path / "auto_semantic_config.yml", eval_run.name, use_slurm=use_slurm, partition=partition)
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
   
-    runs_eval(args.runs, args.proj_name, use_slurm=args.slurm, partition=args.partition)
+    runs_eval(args.runs, args.proj_name, use_slurm=args.slurm, partition=args.partition, data_config_path=args.data)

@@ -29,6 +29,7 @@ import psutil
 import torch
 from rich.console import Console
 from torch.cuda.amp.grad_scaler import GradScaler
+from torch.profiler import ProfilerActivity
 from typing_extensions import Literal
 
 import wandb
@@ -86,6 +87,7 @@ class TrainerConfig(ExperimentConfig):
     """path to config to load. Ignores all other parameters in config."""
     load_pretrained_model: bool = False
     """If set it will"""
+    wandb_project_name: str = "nesf-models-project"
 
 
 class Trainer:
@@ -135,7 +137,7 @@ class Trainer:
         self._check_viewer_warnings()
         # set up writers/profilers if enabled
         writer_log_path = self.base_dir / config.logging.relative_log_dir
-        writer.setup_event_writer(config.is_wandb_enabled(), config.is_tensorboard_enabled(), log_dir=writer_log_path)
+        writer.setup_event_writer(config.is_wandb_enabled(), config.is_tensorboard_enabled(), log_dir=writer_log_path, wandb_project_name=self.config.wandb_project_name)
         writer.setup_local_writer(config.logging, max_iter=config.max_num_iterations, banner_messages=banner_messages)
         writer.put_config(name="config", config_dict=dataclasses.asdict(config), step=0)
         if self.config.wandb_run_name is not None and wandb.run is not None:
@@ -168,7 +170,8 @@ class Trainer:
 
         if isinstance(self.pipeline.model, NeuralSemanticFieldModel):
             model_path = self.pipeline.datamanager.train_dataset.current_set.model_path
-            model = load_model(model_path)
+            model_config = self.pipeline.datamanager.train_dataset.current_set.model_config
+            model = load_model(model_path, model_config)
             self.pipeline.model.set_model(model)
 
     def setup_optimizers(self) -> Optimizers:
@@ -210,21 +213,31 @@ class Trainer:
             step = 0
             # with torch.profiler.profile(
             #         schedule=torch.profiler.schedule(
+            #             skip_first=10,
             #             wait=2,
-            #             warmup=2,
+            #             warmup=1,
             #             active=6,
             #             repeat=1),
-            #         on_trace_ready=tensorboard_trace_handler,
-            #         with_stack=True
+            #         on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/stratified'),
+            #         with_stack=True,
+            #         profile_memory=True,
+            #         activities=[ProfilerActivity.CUDA]
             #     ) as profiler:
+            # profiler.start()
             for step in range(self._start_step, self._start_step + num_iterations):
                 with TimeWriter(writer, EventName.ITER_TRAIN_TIME, step=step) as train_t:
                     CONSOLE.print("##############################################################")
-                    
 
                     # Example usage:
                     memory_usage = get_memory_usage()
                     CONSOLE.print(f"Current memory usage: {memory_usage:.2f} MB")
+                    # torch print memory usage
+                    CONSOLE.print(
+                        f"Current torch memory usage: {torch.cuda.memory_allocated() / 1024 ** 2:.2f} MB, \
+                        Reserved: {torch.cuda.memory_reserved() / 1024 ** 2:.2f} MB, \
+                        Max: {torch.cuda.max_memory_allocated() / 1024 ** 2:.2f} MB \
+                        Max Reserved: {torch.cuda.max_memory_reserved() / 1024 ** 2:.2f} MB"
+                    )
 
                     time1 = time.time()
                     self.pipeline.train()
@@ -266,6 +279,7 @@ class Trainer:
                     self.save_checkpoint(step)
 
                 writer.write_out_storage()
+                # profiler.step()
             # save checkpoint at the end of training
             self.save_checkpoint(step)
 
@@ -359,9 +373,15 @@ class Trainer:
             if self.config.load_pretrained_model:
                 pipeline_state_dict = loaded_state["pipeline"]
                 # remove all keys which contain certain strings
-                strings_not_allowed = ["head", "fallback_model", "decoder", "mask_token", "learned_low_density_value", "learned_mask_value"]
+                strings_not_allowed = [
+                    "head",
+                    "fallback_model",
+                    "decoder",
+                    "mask_token",
+                    "learned_low_density_value",
+                    "learned_mask_value",
+                ]
                 for key in list(pipeline_state_dict.keys()):
-                   
                     if any(string in key for string in strings_not_allowed):
                         del pipeline_state_dict[key]
 
@@ -374,7 +394,7 @@ class Trainer:
                 CONSOLE.print(f"done loading checkpoint from {load_path}")
         else:
             CONSOLE.print("No checkpoints to load, training from scratch")
-            
+
         return
 
     @check_main_thread
@@ -416,7 +436,7 @@ class Trainer:
         """
         self.optimizers.zero_grad_all()
         cpu_or_cuda_str = self.device.split(":")[0]
-        time1  = time.time()
+        time1 = time.time()
         with torch.autocast(device_type=cpu_or_cuda_str, enabled=self.mixed_precision):
             _, loss_dict, metrics_dict = self.pipeline.get_train_loss_dict(step=step)
             loss = functools.reduce(torch.add, loss_dict.values())
@@ -429,15 +449,14 @@ class Trainer:
         time5 = time.time()
         self.optimizers.scheduler_step_all(step)
         time6 = time.time()
-        
+
         CONSOLE.print("Trainer: get train loss dict: ", time2 - time1)
         CONSOLE.print("Trainer: backward: ", time3 - time2)
         CONSOLE.print("Trainer: optimizer step: ", time4 - time3)
         CONSOLE.print("Trainer: grad scaler update: ", time5 - time4)
         CONSOLE.print("Trainer: scheduler step: ", time6 - time5)
         # Merging loss and metrics dict into a single output.
-        
-        
+
         return loss, loss_dict, metrics_dict
 
     @check_eval_enabled
@@ -459,7 +478,7 @@ class Trainer:
         # one eval image
         if step_check(step, self.config.steps_per_eval_image):
             CONSOLE.print("eval image loop")
-            
+
             with TimeWriter(writer, EventName.TEST_RAYS_PER_SEC, write=False) as test_t:
                 metrics_dict, images_dict = self.pipeline.get_eval_image_metrics_and_images(step=step)
             writer.put_time(

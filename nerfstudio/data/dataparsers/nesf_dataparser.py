@@ -34,7 +34,7 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
 from nerfstudio.models.base_model import Model
 from nerfstudio.utils.io import load_from_json
-from nerfstudio.utils.nesf_utils import get_memory_usage
+from nerfstudio.utils.nesf_utils import CLASS_TO_COLOR, get_memory_usage
 from nerfstudio.utils.writer import put_config
 
 CONSOLE = Console(width=120)
@@ -58,28 +58,7 @@ SEMANTIC_CLASSES_KUBASIC_OBJECTS = [
 SEMANTIC_CLASSES_TOYBOX_5 = ["background", "airplane", "car", "chair", "sofa", "table"]
 SEMANTIC_CLASSES_TOYBOX_13 = ["background", "airplane", "bench", "cabinet", "car", "chair", "display", "lamp", "loudspeaker", "rifle", "sofa", "table", "telephone", "vessel"]
 
-CLASS_TO_COLOR = (
-    torch.tensor(
-        [
-            [0, 0, 0],
-            [255, 0, 0],
-            [0, 255, 0],
-            [0, 0, 255],
-            [255, 255, 0],
-            [255, 0, 255],
-            [0, 255, 255],
-            [255, 255, 255],
-            [128, 0, 0],
-            [0, 128, 0],
-            [0, 0, 128],
-            [128, 128, 0],
-            [128, 0, 128],
-            [0, 128, 128],
-            [128, 128, 128],
-        ]
-    )
-    / 255.0
-)
+
 
 # TODO delete if not needed
 # @dataclass
@@ -280,7 +259,7 @@ class Nesf(DataParser):
             filenames=semantic_paths, classes=classes, colors=CLASS_TO_COLOR, mask_classes=[]
         )
         # TODO update dataparser_output.metadata with model
-        dataparser_output.metadata.update({"model_path": model_path, "semantics": semantics})
+        dataparser_output.metadata.update({"model_path": model_path, "model_config": conf["model_config"], "semantics": semantics})
 
         CONSOLE.print("Current mem usage after parsing: ", get_memory_usage())
         return dataparser_output

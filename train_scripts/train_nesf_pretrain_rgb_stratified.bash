@@ -10,9 +10,11 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_10_270.json"
 
 # RAYS=131072
-RAYS=65536
+RAYS=40960
 # RAYS=32768
 # RAYS=16384
+
+# export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512'
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
@@ -36,9 +38,10 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.sampler.samples-per-ray 16 \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500 \
-	--pipeline.model.sampler.ground-tolerance 0.005 \
+	--pipeline.model.sampler.ground-tolerance 0.0075 \
 	--pipeline.model.sampler.surface-threshold 0.5 \
-	--pipeline.model.batching-mode "sliced" \
+	--pipeline.model.sampler.get-normals False \
+	--pipeline.model.batching-mode "off" \
 	--pipeline.model.batch_size 2048 \
 	--pipeline.model.mode rgb \
 	--pipeline.model.pretrain True  \
@@ -52,19 +55,20 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-generator-config.rot-augmentation True \
 	--pipeline.model.space-partitioning "random" \
 	--pipeline.model.feature-transformer-model "stratified" \
-	--pipeline.model.feature-transformer-stratified-config.grid_size 0.006 \
-	--pipeline.model.feature-transformer-stratified-config.quant_size 0.005 \
-	--pipeline.model.feature-transformer-stratified-config.window_size 5 \
+	--pipeline.model.feature-transformer-stratified-config.grid_size 0.002 \
+	--pipeline.model.feature-transformer-stratified-config.quant_size 0.000025 \
+	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
 	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
 	--pipeline.model.feature_decoder_model "stratified" \
-	--pipeline.model.feature-decoder-stratified-config.grid_size 0.006 \
-	--pipeline.model.feature-decoder-stratified-config.quant_size 0.005 \
-	--pipeline.model.feature-decoder-stratified-config.window_size 5 \
+	--pipeline.model.feature-decoder-stratified-config.grid_size 0.002 \
+	--pipeline.model.feature-decoder-stratified-config.quant_size 0.000025 \
+	--pipeline.model.feature-decoder-stratified-config.window_size 4 \
 	--pipeline.model.feature-decoder-stratified-config.load_dir "" \
 	--pipeline.model.feature-decoder-stratified-config.num-layers 3 \
 	--pipeline.model.feature-decoder-stratified-config.depths 2 2 4 \
 	--pipeline.model.masker_config.mask_ratio 0.5 \
 	--pipeline.model.masker_config.mode "patch" \
+	--pipeline.model.masker_config.num-patches 100 \
 	--pipeline.model.rgb-prediction "integration" \
 	nesf-data \
 	--data-config $DATA_CONFIG 
