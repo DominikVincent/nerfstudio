@@ -197,8 +197,9 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
             labels = classes[i, :]
             new_colors = torch.index_select(CLASS_TO_COLOR, 0, labels) * 255
         else:
-            new_colors = torch.randn((batch_size, 3)).repeat(batch_size, 1) * 255
+            new_colors = torch.randn((1, 3)).repeat(batch_size, 1) * 255
         colors = torch.cat((colors, new_colors))
+        
     scatter = go.Scatter3d(
         x=points[:, 0],
         y=points[:, 1],

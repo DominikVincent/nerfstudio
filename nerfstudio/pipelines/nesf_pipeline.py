@@ -129,10 +129,7 @@ class NesfPipeline(Pipeline):
         Args:
             step: current iteration step to update sampler if using DDP (distributed)
         """
-        time0 = time()
-        # self.datamanager.models_to_cpu(step)
-        time1 = time()
-        CONSOLE.print(f"Time to put models to cpu: {time1 - time0}")
+        time1  = time()
         ray_bundle, batch = self.datamanager.next_train(step)
         time2 = time()
         CONSOLE.print(f"Time to get next train batch: {time2 - time1}")

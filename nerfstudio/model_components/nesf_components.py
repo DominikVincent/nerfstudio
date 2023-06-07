@@ -560,7 +560,7 @@ class FeatureGeneratorTorch(nn.Module):
         device = transform_batch["points_xyz"].device
 
         encodings = []
-
+        time1 = time.time()
         if self.config.use_rgb:
             rgb = field_outputs[FieldHeadNames.RGB]
             assert not torch.isnan(rgb).any()
@@ -572,7 +572,9 @@ class FeatureGeneratorTorch(nn.Module):
             assert not torch.isinf(rgb_out).any()
 
             encodings.append(rgb_out)
-
+        
+        time2 = time.time()
+        
         if self.config.use_density:
             density = field_outputs[FieldHeadNames.DENSITY]
             # normalize density between 0 and 1
@@ -591,16 +593,21 @@ class FeatureGeneratorTorch(nn.Module):
             density = self.density_linear(density)
             assert not torch.isnan(density).any()
             encodings.append(density)
-
+        
+        time3 = time.time()
+        
         if self.config.rot_augmentation:
             batch_size = transform_batch["points_xyz"].shape[0]
-            angles = uniform.Uniform(0, 2 * torch.pi).sample((batch_size,))
-
+            angles_np = np.random.uniform(0, 2 * np.pi, size=(batch_size,)).astype('f')
+            angles = torch.from_numpy(angles_np)
+            
             # Construct the rotation matrices from the random angles.
             zeros = torch.zeros_like(angles)
             ones = torch.ones_like(angles)
             c = torch.cos(angles)
             s = torch.sin(angles)
+            
+            
             rot_matrix = torch.stack(
                 [
                     torch.stack([c, -s, zeros], dim=-1),
@@ -612,7 +619,9 @@ class FeatureGeneratorTorch(nn.Module):
 
         else:
             rot_matrix = torch.eye(3, device=device)
-
+        
+        time4 = time.time()
+        
         positions = transform_batch["points_xyz"]
 
         if self.config.rot_augmentation:
@@ -622,9 +631,10 @@ class FeatureGeneratorTorch(nn.Module):
             # TODO if needed add the normalizeation for now hardcode clamp
             # positions = torch.clamp(positions, self.aabb[0], self.aabb[1])
             
-
+        time5 = time.time()
         positions = self.normalize_positions(positions)            
-
+        time6 = time.time()
+        
         positions = cast(TensorType, positions)
         # The positions need to be in [0,1] for the positional encoding
         positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
@@ -637,7 +647,7 @@ class FeatureGeneratorTorch(nn.Module):
         # normalize positions at 0 mean and within unit ball
         # mean = torch.mean(positions_normalized, dim=1).unsqueeze(1)
         # dist = torch.norm(positions_normalized - mean, dim=-1).max()
-
+        time7 = time.time()
         
         assert ((not self.config.use_normal_encoding) or FieldHeadNames.NORMALS in field_outputs)
         if FieldHeadNames.NORMALS in field_outputs or FieldHeadNames.PRED_NORMALS in field_outputs:
@@ -650,13 +660,13 @@ class FeatureGeneratorTorch(nn.Module):
                 normals = get_normalized_directions(normals)
                 transform_batch["normals_encoded"] = normals
                 encodings.append(self.dir_encoder(normals))
-
+        time8 = time.time()
         if self.config.use_pos_encoding:
             pos_encoding = self.pos_encoder(positions_normalized)
             assert not torch.isnan(pos_encoding).any()
             encodings.append(pos_encoding)
-            
-
+        
+        time9 = time.time()
         if self.config.use_dir_encoding:
             directions = transform_batch["directions"]
             directions = torch.nn.functional.normalize(directions, dim=-1)
@@ -669,6 +679,7 @@ class FeatureGeneratorTorch(nn.Module):
             assert not torch.isnan(dir_encoding).any()
             encodings.append(dir_encoding)
 
+        time10 = time.time()
         out = torch.cat(encodings, dim=-1)
         # out: 1, num_dense, out_dim
         # weights: num_rays, num_samples, 1
@@ -679,16 +690,27 @@ class FeatureGeneratorTorch(nn.Module):
         # positions_normalized = (positions_normalized - mean) / dist
         if self.config.visualize_point_batch:
             if "normals_unnormalized" in transform_batch:
-                # visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals_unnormalized"])
-                visualize_point_batch(transform_batch["points_xyz"])
+                visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals_unnormalized"])
+                # visualize_point_batch(transform_batch["points_xyz"])
                 
             else:
                 visualize_point_batch(transform_batch["points_xyz"])
             a = input("press enter to continue...")
 
-        if self.config.log_point_batch and random.random() < (1 / 15):
+        if self.config.log_point_batch and random.random() < (1 / 5000):
             log_points_to_wandb(transform_batch["points_xyz"])
         
+        time11 = time.time()
+        CONSOLE.print("FeatureGenerator - time1: ", time2 - time1)
+        CONSOLE.print("FeatureGenerator - time2: ", time3 - time2)
+        CONSOLE.print("FeatureGenerator - time3: ", time4 - time3)
+        CONSOLE.print("FeatureGenerator - time4: ", time5 - time4)
+        CONSOLE.print("FeatureGenerator - time5: ", time6 - time5)
+        CONSOLE.print("FeatureGenerator - time6: ", time7 - time6)
+        CONSOLE.print("FeatureGenerator - time7: ", time8 - time7)
+        CONSOLE.print("FeatureGenerator - time8: ", time9 - time8)
+        CONSOLE.print("FeatureGenerator - time9: ", time10 - time9)
+        CONSOLE.print("FeatureGenerator - time10: ", time11 - time10)
         return out, transform_batch
 
     def normalize_positions(self, points: torch.tensor) -> torch.tensor:
@@ -940,7 +962,6 @@ class StratifiedTransformerWrapper(nn.Module):
             CONSOLE.print("Feature Transformer unexpected keys", unexpected_keys)
                 
     def forward(self, x: torch.Tensor, batch: dict):
-        start_time = time.time()
 
         def batch_for_stratified_point_transformer(points, features):
             batch_size = points.shape[0]
@@ -977,7 +998,6 @@ class StratifiedTransformerWrapper(nn.Module):
             x = self.activation(x)
 
         x = x.reshape(*feature_shape[:-1], -1)
-        CONSOLE.print("StratifiedTransformerWrapper forward time: ", time.time() - start_time)
         return x
 
     def get_out_dim(self) -> int:

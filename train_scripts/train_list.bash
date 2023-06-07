@@ -18,36 +18,16 @@ fi
 # Set the path to the bash script you want to execute
 script_path="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/train_scripts/train.bash"
 
-# Set the number of folders to process
-num_folders=1
-start_folder=155
+# folders_to_process=("39" "88" "113" "114" "116" "115" "131" "133" "134" "147" "155" "158" "161" "164" "160" "199" "203" "211" "217" "229" "230" "243" "246" "265" "266" "278")
+folders_to_process=("281" "286" "284" "292" "293" "296" "299" "330" "385" "388" "394" "415" "418" "437" "432" "433" "441" "453" "461" "462" "470" "479" "483" "497" "502" "510" "514" "524")
 
-folder_list=($(ls -1 "$directory_path" | grep -E "^[0-9]+$" | sort -n))
-
-# Iterate through each folder in the directory
-count=0
-dir_counter=0
-for folder in "${folder_list[@]}"; do
+for folder in "${folders_to_process[@]}"; do
   folder_path="$directory_path/$folder"
-  if [ $count -eq $num_folders ]; then
-    break
-  fi
-  ((dir_counter++))
-
-
-  # Skip folders before the start folder
-  if [ $dir_counter -le $start_folder ]; then
-    continue
-  fi
-
+ 
   # get the folder name
   echo "$folder_path"
 
   folder_name=$(basename "$folder_path")
-
-
-
-
   if [ -d "$folder_path" ] && [ "$(ls -A "$folder_path")" ]; then
     # Execute the script with the folder name as an argument
     $script_path "$folder_path" "$folder_name" "$output_dir"

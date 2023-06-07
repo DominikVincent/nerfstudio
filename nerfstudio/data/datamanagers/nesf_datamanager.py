@@ -32,6 +32,7 @@ from nerfstudio.data.dataparsers.nesf_dataparser import NerfstudioDataParserConf
 from nerfstudio.data.datasets.base_dataset import InputDataset
 from nerfstudio.data.datasets.nesf_dataset import NesfDataset, NesfItemDataset
 from nerfstudio.data.pixel_samplers import EquirectangularPixelSampler, PixelSampler
+from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.utils.dataloaders import (
     CacheDataloader,
     FixedIndicesEvalDataloader,
@@ -39,6 +40,8 @@ from nerfstudio.data.utils.dataloaders import (
 )
 from nerfstudio.data.utils.nerfstudio_collate import nerfstudio_collate
 from nerfstudio.model_components.ray_generators import RayGenerator
+from nerfstudio.models.depth_nerfacto import DepthNerfactoModelConfig
+from nerfstudio.models.nerfacto import NerfactoModelConfig
 from nerfstudio.utils import profiler
 from nerfstudio.utils.misc import get_dict_to_torch
 from nerfstudio.utils.nesf_utils import get_memory_usage
@@ -184,7 +187,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
         self.meta_train_image_dataloader = PrefetchLoader(
             self.train_datasets,
             batch_size=self.config.train_num_images_to_sample_from,
-            prefetch_batches=10,
+            prefetch_batches=20,
             collate_fn=self.config.collate_fn,
             device=self.device,
         )
@@ -317,18 +320,16 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
         """Returns the next batch of data from the train dataloader."""
         if self.last_model is not None:
-            print("Infront of lock next_train")
             with self.meta_train_image_dataloader.lock:
-                print("inside of lock next_train")
-                
                 if self.last_model_idx not in self.meta_train_image_dataloader.queued_idx:
                     self.last_model.to("cpu", non_blocking=True)
             
-        CONSOLE.print("Before next train mem usage: ", get_memory_usage())
         self.train_count += 1
         time1 = time.time()
         # image_batch: dict = next(self.meta_train_image_dataloader)
         image_batch: dict = next(self.meta_train_image_dataloader)
+        CONSOLE.print("Currently queued (", len(self.meta_train_image_dataloader.queued_idx),"/", self.meta_train_image_dataloader.prefetch_batches,"): ", self.meta_train_image_dataloader.queued_idx)
+        CONSOLE.print("jobs queued up in threadpool:", self.meta_train_image_dataloader.executor._work_queue.qsize())
         assert image_batch["model"][0].device != "cpu"
         model_idx = image_batch["model_idx"]
         del image_batch["model_idx"]
@@ -476,8 +477,7 @@ class NesfDataManager(DataManager):  # pylint: disable=abstract-method
 
 def get_dir_of_path(path: Path) -> str:
     return str(path.parent.name)
-from nerfstudio.data.scene_box import SceneBox
-from nerfstudio.models.nerfacto import NerfactoModelConfig
+
 
 
 class PrefetchLoader:
@@ -505,17 +505,13 @@ class PrefetchLoader:
         batch["model"] = [load_model(batch["model_path"][0], model_config)] * self.batch_size
         del batch["model_path"]
         batch = get_dict_to_torch(batch, device=self.device, exclude=["image", "semantics"])
-        print("infront of prefetch lock")
         with self.lock:
-            print("in prefetch lock")
             self.queue.put(batch)
             self.queued_idx.append(idx)
-        print("after prefetch lock", idx)
         
     def __next__(self):
-        print("next")
         time1 = time.time()
-        if self.queue.qsize() < self.prefetch_batches:
+        if self.queue.qsize() < self.prefetch_batches and self.executor._work_queue.qsize() < self.prefetch_batches:
             batches_to_prefetch = max(self.prefetch_batches - self.queue.qsize(), 0)
             print("Prefetching", batches_to_prefetch, "batches queue size", self.queue.qsize())
             futures = [self.executor.submit(self.prefetch) for _ in range(batches_to_prefetch)]
@@ -525,24 +521,17 @@ class PrefetchLoader:
         batch = self.queue.get()
         with self.lock:
             self.queued_idx.remove(batch["model_idx"])
-        time3 = time.time()
-        # batch = get_dict_to_torch(batch, device=self.device, exclude=["image", "semantics"])
-
-        time4 = time.time()
-        CONSOLE.print("queuing up took", time2 - time1)
-        CONSOLE.print("getting from queue took", time3 - time2)
-        CONSOLE.print("to torch took", time4 - time3)
 
         return batch
 
 def load_model(model_path, model_config):
     time1 = time.time()
     pred_normals = "normal" in str(model_path)
-    model=NerfactoModelConfig(eval_num_rays_per_chunk=1 << 15,
+    
+    model=DepthNerfactoModelConfig(eval_num_rays_per_chunk=1 << 15,
                                     predict_normals=pred_normals,
                                     **model_config)
                                     
-    time2 = time.time()
     
     # scene box will be loaded from state
     # num_train_data is 271 for our models, not relevant during eval anyway
@@ -551,20 +540,18 @@ def load_model(model_path, model_config):
     model = model.setup(scene_box=scene_box,
             num_train_data=271,
             metadata={})
-    time3 = time.time()
+    time2 = time.time()
     loaded_state = torch.load(model_path, map_location="cpu")["pipeline"]
     
     state = {key.replace("module.", ""): value for key, value in loaded_state.items()}
     state = {key.replace("_model.", ""): value for key, value in state.items()}
-    time4 = time.time()
     missing_keys, unexpected_keys = model.load_state_dict(state, strict=True)
     assert missing_keys == []
     assert unexpected_keys == []
     
-    time5 = time.time()
-    # print("Load Model - loading model took", time2 - time1)
-    # print("Load Model - setup took", time3 - time2)
-    # print("Load Model - loading state took", time4 - time3)
-    # print("Load Model - loading state dict took", time5 - time4)
+    time3 = time.time()
+    print("Load Model - loading model took", time2 - time1)
+    print("Load Model - loading state dict took", time3 - time2)
+
     
     return model

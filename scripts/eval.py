@@ -31,10 +31,11 @@ class ComputePSNR:
     save_images: bool = False
     use_wandb: bool = False
     name: str = ""
+    wandb_name: str = "toybox-5-nesf"
 
     def main(self) -> None:
         """Main function."""
-        writer.setup_event_writer(self.use_wandb, is_tensorboard_enabled=False, log_dir="logs")
+        writer.setup_event_writer(self.use_wandb, is_tensorboard_enabled=False, log_dir="logs", wandb_project_name=self.wandb_name)
         if self.name != "" and self.use_wandb and wandb.run is not None:
             wandb.run.name = self.name
             wandb.run.tags = ["test", "eval"]

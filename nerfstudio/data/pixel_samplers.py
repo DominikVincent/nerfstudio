@@ -63,16 +63,10 @@ class PixelSampler:  # pylint: disable=too-few-public-methods
             mask: mask of possible pixels in an image to sample from.
         """
         if isinstance(mask, torch.Tensor):
-            time1 = time.time()
             nonzero_indices = torch.nonzero(mask[..., 0], as_tuple=False)
-            time2 = time.time()
             chosen_indices = random.sample(range(len(nonzero_indices)), k=batch_size)
-            time3 = time.time()
             indices = nonzero_indices[chosen_indices]
-            time4 = time.time()
-            print(f"Sample method - nonzero: {time2 - time1}")
-            print(f"Sample method - random: {time3 - time2}")
-            print(f"Sample method - indices: {time4 - time3}")
+
         else:
             indices = torch.floor(
                 torch.rand((batch_size, 3), device=device)

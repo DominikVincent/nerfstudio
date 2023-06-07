@@ -87,7 +87,7 @@ class TrainerConfig(ExperimentConfig):
     """path to config to load. Ignores all other parameters in config."""
     load_pretrained_model: bool = False
     """If set it will"""
-    wandb_project_name: str = "nesf-models-project"
+    wandb_project_name: str = "toybox-5-nesf"
 
 
 class Trainer:
@@ -280,6 +280,13 @@ class Trainer:
 
                 writer.write_out_storage()
                 # profiler.step()
+                
+                # if step > 600:
+                #     broken = list(self.pipeline.model.broken_normals.keys())
+                #     # save broken normals list to txt
+                #     with open("broken_normals.txt", "w") as f:
+                #         for item in broken:
+                #             f.write("%s\n" % item)
             # save checkpoint at the end of training
             self.save_checkpoint(step)
 
