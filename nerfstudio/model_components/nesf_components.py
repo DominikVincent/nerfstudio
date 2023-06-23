@@ -136,6 +136,7 @@ class SceneSampler:
 
         total_mask = density_mask & pos_mask
         
+        
         # only compute ground points from filter points
         if self.config.ground_removal_mode == "ransac":
             non_ground_mask = self.get_non_ground_mask_ground_plane_fitting(ray_samples, total_mask, model_idx)
@@ -154,6 +155,7 @@ class SceneSampler:
         ray_samples, weights, field_outputs = self.apply_mask(ray_samples, weights, field_outputs, final_mask)
         time9 = time.time()
         
+        # visualize_point_batch(ray_samples.frustums.get_positions())
         # CONSOLE.print(f"Sampler: query nerf: {time2-time1}")
         # CONSOLE.print(f"Sampler: surface sampling: {time3-time2}")
         # CONSOLE.print(f"Sampler: copy field outputs: {time4-time3}")
@@ -209,11 +211,13 @@ class SceneSampler:
         # true for points to keep
         points = ray_samples.frustums.get_positions()
         
-        # visualize_point_batch(points.cpu())
+        # visualize_point_batch(points.cpu().view(-1, 3))
         
         points_dense_mask = (points[..., 2] > self.config.z_value_threshold) & (
             torch.norm(points[..., :2], dim=-1) <= self.config.xy_distance_threshold
         )
+        # visualize_point_batch(points[points_dense_mask].cpu().view(-1, 3))
+        
         # print(points_dense_mask)
         return points_dense_mask
     
@@ -250,6 +254,7 @@ class SceneSampler:
             ground_z = sorted_z[:self.config.ground_points_count].median()
             
             filtered_points = filtered_points[filtered_points[..., 2] < ground_z + 2 * self.config.ground_tolerance]
+            
             # visualize_point_batch(filtered_points.cpu().unsqueeze(0))
             
             model = RANSACRegressor()
@@ -439,7 +444,7 @@ class Masker(nn.Module):
         
         N, L, C = x.shape
         
-        ratio = 0.75
+        ratio = self.config.mask_ratio
         points = batch["points_xyz"]
 
         # select k points per batch randomly
@@ -452,9 +457,14 @@ class Masker(nn.Module):
 
         len_keep = int(L * (1 - ratio))
         ids_restore = torch.argsort(indices, dim=1)
-        indices_keep = indices[:, :len_keep]
-        indices_mask = indices[:, len_keep:]
-        
+        # indices_keep = indices[:, :len_keep]
+        # indices_mask = indices[:, len_keep:]
+
+        # we want to mask out the points which are close to the centroids
+        indices_mask = indices[:, :len_keep]
+        indices_keep = indices[:, len_keep:]
+
+
         return indices_keep, indices_mask, ids_restore
 
 @dataclass
@@ -481,6 +491,9 @@ class FeatureGeneratorTorchConfig(InstantiateConfig):
 
     rot_augmentation: bool = True
     """Should the random rot augmentation around the z axis be used?"""
+    
+    jitter: float = 0.0
+    """How much jitter should be used in the augmentation?"""
 
     visualize_point_batch: bool = False
     """Visualize the points of the batch? Useful for debugging"""
@@ -596,7 +609,7 @@ class FeatureGeneratorTorch(nn.Module):
         
         time3 = time.time()
         
-        if self.config.rot_augmentation:
+        if self.config.rot_augmentation and self.training:
             batch_size = transform_batch["points_xyz"].shape[0]
             angles_np = np.random.uniform(0, 2 * np.pi, size=(batch_size,)).astype('f')
             angles = torch.from_numpy(angles_np)
@@ -626,10 +639,13 @@ class FeatureGeneratorTorch(nn.Module):
 
         if self.config.rot_augmentation:
             # TODO consider turning that off if not self.training()
-            positions = torch.matmul(positions, rot_matrix)
+            positions = torch.matmul(positions, rot_matrix) 
             # normalize postions to be within scene bounds  self.aabb: Tensor[2,3]
             # TODO if needed add the normalizeation for now hardcode clamp
             # positions = torch.clamp(positions, self.aabb[0], self.aabb[1])
+            
+        if self.config.jitter != 0.0 and self.training:
+            positions = positions + torch.randn_like(positions) * self.config.jitter
             
         time5 = time.time()
         positions = self.normalize_positions(positions)            
