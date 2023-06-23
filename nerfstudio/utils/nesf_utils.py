@@ -184,7 +184,7 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
 
     if normals is not None:
         # normalize normals to length 0.01
-        normals = (normals / torch.norm(normals, dim=-1, keepdim=True)) * 0.005
+        normals = (normals / torch.norm(normals, dim=-1, keepdim=True)) * 0.01
         
     points = torch.empty((0, 3))
     colors = torch.empty((0, 3))
@@ -197,7 +197,8 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
             labels = classes[i, :]
             new_colors = torch.index_select(CLASS_TO_COLOR, 0, labels) * 255
         else:
-            new_colors = torch.randn((1, 3)).repeat(batch_size, 1) * 255
+            # new_colors = torch.randn((1, 3)).repeat(batch_size, 1) * 255
+            new_colors = torch.zeros((1,3)).repeat(batch_size, 1)
         colors = torch.cat((colors, new_colors))
         
     scatter = go.Scatter3d(
@@ -205,12 +206,12 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
         y=points[:, 1],
         z=points[:, 2],
         mode="markers",
-        marker=dict(color=colors, size=1, opacity=0.8),
+        marker=dict(color=colors, size=2, opacity=0.8),
     )
     data = [scatter]
     # create a layout with axes labels
     layout = go.Layout(
-        title=f"RGB points: {points_pad.shape}",
+        # title=f"RGB points: {points_pad.shape}",
         scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"), aspectmode="data"),
     )
     if normals is not None:
@@ -284,7 +285,7 @@ def log_points_to_wandb(points_pad: torch.Tensor, ids_shuffle: Union[None, torch
 
 
 def compute_mIoU(confusion_matrix) -> Tuple[float, np.ndarray]:
-    """columns is prediction rows is true"""
+    """columns is prediction rows is true, confusion needs to be unnormalized"""
     intersection = np.diag(confusion_matrix)
     ground_truth_set = confusion_matrix.sum(axis=0)
     predicted_set = confusion_matrix.sum(axis=1)
@@ -295,9 +296,19 @@ def compute_mIoU(confusion_matrix) -> Tuple[float, np.ndarray]:
 
     mIoU = np.nanmean(IoU)
     
-    
     return mIoU, IoU
 
+def calculate_accuracy(confusion_matrix):
+    """columns is prediction rows is true, confusion matrix needs to be unnormalized"""
+    
+    # Get the diagonal elements of the confusion matrix
+    correct_predictions = np.diag(confusion_matrix)
+    # Get the total number of predictions
+    total_predictions = np.sum(confusion_matrix)
+    # Calculate the accuracy
+    accuracy = np.sum(correct_predictions) / total_predictions
+    accuracy_per_class = correct_predictions / np.sum(confusion_matrix, axis=1).astype(np.float32)
+    return accuracy, accuracy_per_class
 
 def get_memory_usage():
     process = psutil.Process()

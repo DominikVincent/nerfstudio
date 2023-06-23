@@ -30,10 +30,10 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.train-num-rays-per-batch $RAYS \
 	--pipeline.datamanager.eval-num-rays-per-batch $EVAL_RAYS \
     --pipeline.datamanager.use-sample-mask False \
-    --pipeline.datamanager.sample-mask-ground-percentage 0.2 \
+    --pipeline.datamanager.sample-mask-ground-percentage 1.0 \
 	--pipeline.model.eval-num-rays-per-chunk $EVAL_RAYS \
 	--pipeline.model.sampler.surface-sampling True \
-	--pipeline.model.sampler.samples-per-ray 16 \
+	--pipeline.model.sampler.samples-per-ray 24 \
 	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500 \
@@ -54,7 +54,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-generator-config.rot-augmentation True \
 	--pipeline.model.space-partitioning "random" \
 	--pipeline.model.feature-transformer-model "stratified" \
-	--pipeline.model.feature-transformer-stratified-config.grid_size 0.008 \
+	--pipeline.model.feature-transformer-stratified-config.grid_size 0.005 \
 	--pipeline.model.feature-transformer-stratified-config.quant_size 0.005 \
 	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
 	nesf-data \

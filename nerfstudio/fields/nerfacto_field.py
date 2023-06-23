@@ -205,7 +205,7 @@ class TCNNNerfactoField(Field):
             self.mlp_pred_normals = tcnn.Network(
                 n_input_dims=self.geo_feat_dim + self.position_encoding.n_output_dims,
                 n_output_dims=hidden_dim_transient,
-                seed=2,
+                seed=3,
                 network_config={
                     "otype": "FullyFusedMLP",
                     "activation": "ReLU",

@@ -87,6 +87,7 @@ class Nerfstudio(DataParser):
         image_filenames = []
         mask_filenames = []
         depth_filenames = []
+        normal_filenames = []
         poses = []
         num_skipped_image_filenames = 0
 
@@ -161,6 +162,11 @@ class Nerfstudio(DataParser):
                 depth_filepath = PurePath(frame["depth_file_path"])
                 depth_fname = self._get_fname(depth_filepath, data_dir, downsample_folder_prefix="depths_")
                 depth_filenames.append(depth_fname)
+            
+            if "normal_file_path" in frame:
+                normal_filepath = PurePath(frame["normal_file_path"])
+                normal_fname = self._get_fname(normal_filepath, data_dir, downsample_folder_prefix="normals_")
+                normal_filenames.append(normal_fname)
 
         if num_skipped_image_filenames >= 0:
             CONSOLE.log(f"Skipping {num_skipped_image_filenames} files in dataset split {split}.")
@@ -225,6 +231,7 @@ class Nerfstudio(DataParser):
         image_filenames = [image_filenames[i] for i in indices]
         mask_filenames = [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
         depth_filenames = [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
+        normal_filenames = [normal_filenames[i] for i in indices] if len(normal_filenames) > 0 else []
         poses = poses[indices]
 
         # in x,y,z order
@@ -285,6 +292,7 @@ class Nerfstudio(DataParser):
             metadata={
                 "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
                 "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
+                "normal_filenames": normal_filenames if len(normal_filenames) > 0 else None,
             },
         )
         CONSOLE.print("[green] Dataparser outputs returned")

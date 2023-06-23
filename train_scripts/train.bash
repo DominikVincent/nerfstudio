@@ -21,6 +21,7 @@ ns-train depth-nerfacto \
     --pipeline.model.max-res 1536 \
     --pipeline.model.depth-sigma 0.001 \
     --pipeline.model.depth-loss-mult 0.01 \
-	--viewer.websocket-port 7006  
+	--viewer.websocket-port 7006  \
+	--wandb-project-name "nesf-models-project"
 	# --optimizers.proposal-networks.optimizer.weight-decay 0.0001 \
 

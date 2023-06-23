@@ -537,8 +537,9 @@ def load_model(model_path, model_config):
     # num_train_data is 271 for our models, not relevant during eval anyway
     scene_box = SceneBox(aabb = torch.zeros((2,3)))
 
+    num_train_data = 231 if "klevr-normal" in str(model_path) else 271
     model = model.setup(scene_box=scene_box,
-            num_train_data=271,
+            num_train_data=num_train_data,
             metadata={})
     time2 = time.time()
     loaded_state = torch.load(model_path, map_location="cpu")["pipeline"]

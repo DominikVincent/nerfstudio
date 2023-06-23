@@ -4,11 +4,12 @@ set -x  # Enable debug mode to print each command
 
 # Set the path to the directory containing the folders
 # directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf"
-directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/toybox-5"
+# directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/toybox-5"
+directory_path="/data/vision/polina/projects/wmh/dhollidt/kubric_datasets/klevr"
 
 # Set ouput directory
 # output_dir="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/klever_depth_normal_models_nesf"
-output_dir="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/toybox-5-depth-normal-models-nesf-2"
+output_dir="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/klevr-normal"
 
 # check or create output directory
 if [ ! -d "$output_dir" ]; then
@@ -20,7 +21,7 @@ script_path="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio
 
 # Set the number of folders to process
 num_folders=1
-start_folder=155
+start_folder=12
 
 folder_list=($(ls -1 "$directory_path" | grep -E "^[0-9]+$" | sort -n))
 

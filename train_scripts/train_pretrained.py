@@ -21,6 +21,7 @@ parser.add_argument("--slurm", help="Use slurm", action="store_true", default=Fa
 parser.add_argument("--partition", help="Which slurm partition to use", type=str, default="QRTX5000")
 parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/toybox-5-nesf")
 parser.add_argument("--data", help="Path to a data config if not the default should be used.", type=str)
+parser.add_argument("--only_last_layer", help="Set if only last layer should be trained", action="store_true")
 parser.add_argument("--scratch", help="Train from scratch", action="store_true", default=False)
 parser.add_argument("runs", nargs="+", help="The names of the wandb runs to evaluate", type=str)
 
@@ -30,6 +31,8 @@ LOG_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/tmp/logs")
 def rewrite_config(config_path: Path, name: str, data_config_path: Union[str, None] = None, scratch: bool = False):
     """Rewrites the config of a run from a pretrain config to a semantic config which loads the pretrained weights."""
     # extend path to /config.yml if necessary
+    global args
+    
     if config_path.is_dir():
         config_path = config_path / "config.yml"
     config = yaml.load(config_path.read_text(), Loader=yaml.Loader)
@@ -48,6 +51,9 @@ def rewrite_config(config_path: Path, name: str, data_config_path: Union[str, No
     # remove the pretraining from the model config
     config.pipeline.model.pretrain = False
     config.pipeline.model.mode = "semantics"
+    
+    if args.only_last_layer:
+        config.pipeline.model.only_last_layer = True
     
     # update the data path if provided
     if data_config_path is not None and data_config_path != "":
@@ -112,7 +118,7 @@ conda activate nerfstudio2
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p {partition} --exclude=marjoram --mem=40G --gres=gpu:1 -t 96:60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p {partition} --exclude=fennel --mem=40G --gres=gpu:1 -t 96:60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output
@@ -154,5 +160,5 @@ def runs_eval(
 
 if __name__ == "__main__":
     args = parser.parse_args()
-  
+    
     runs_eval(args.runs, args.proj_name, use_slurm=args.slurm, partition=args.partition, data_config_path=args.data, args=args)

@@ -79,6 +79,9 @@ class NeuralSemanticFieldConfig(ModelConfig):
 
     pretrain: bool = False
     """Flag indicating whether the model is in pretraining mode or not."""
+    
+    only_last_layer: bool = False
+    """Whether to only train the last layer of the model or not."""
 
     space_partitioning: Literal["row_wise", "random", "evenly"] = "random"
     """How to partition the image space when rendering."""
@@ -99,6 +102,11 @@ class NeuralSemanticFieldConfig(ModelConfig):
      - sliced: Sort points by x coordinate and then slice them into batches.
      - off: no batching is done."""
     batch_size: int = 1536
+    
+    proximity_loss: bool = False
+    """Whether to use the proximity loss or not. Encourages that close points give similar predicitons."""
+    proximity_loss_mult: float = 0.01
+    """The multiplier for the proximity loss."""
 
     debug_show_image: bool = False
     """Show the generated image."""
@@ -280,8 +288,28 @@ class NeuralSemanticFieldModel(Model):
         feature_transformer_params = []
         feature_transformer_transformer_params = [] 
         if self.config.feature_transformer_model == "stratified":
-            feature_transformer_params = [p for n, p in self.feature_transformer.named_parameters() if "blocks" not in n and p.requires_grad]
-            feature_transformer_transformer_params = [p for n, p in self.feature_transformer.named_parameters() if "blocks" in n and p.requires_grad]
+            if self.config.only_last_layer:
+                parameters_to_optimize = []
+                excluded_layers = ['layers.0', 'layers.1', 'layers.2']
+                for name, param in self.feature_transformer.named_parameters():
+                    include_parameter = True
+                    # Check if the parameter's name contains any excluded layers
+                    for excluded_layer in excluded_layers:
+                        if excluded_layer in name:
+                            include_parameter = False
+                            param.requires_grad = False
+                            break
+
+                    # Add the parameter to the list if it is not in an excluded layer
+                    if include_parameter:
+                        parameters_to_optimize.append((name, param))
+            
+            
+            else:
+                parameters_to_optimize = self.feature_transformer.named_parameters()
+            
+            feature_transformer_params = [p for n, p in parameters_to_optimize if "blocks" not in n and p.requires_grad]
+            feature_transformer_transformer_params = [p for n, p in parameters_to_optimize if "blocks" in n and p.requires_grad]
             
         else:
             feature_transformer_transformer_params = list(self.feature_transformer.parameters())
@@ -358,7 +386,7 @@ class NeuralSemanticFieldModel(Model):
         field_outputs_raw, transform_batch = self.batching(ray_samples, field_outputs_raw)
         time3 = time.time()
         # TODO return the transformed points
-        outs, transform_batch = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
+        outs, transform_batch = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49t
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
@@ -399,6 +427,17 @@ class NeuralSemanticFieldModel(Model):
             time6 = time.time()
             field_outputs = self.head(field_encodings)
             time7 = time.time()
+            
+            if self.config.proximity_loss:
+                transform_batch["points_xyz"] = transform_batch["points_xyz"] + torch.randn_like(transform_batch["points_xyz"]) * 0.003
+                outs_noise, transform_batch_noise = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
+                field_encodings_noise = self.feature_transformer(outs_noise, batch=transform_batch_noise)
+                field_encodings_noise = self.decoder(field_encodings_noise)
+                field_outputs_noise = self.head(field_encodings_noise)
+                outputs["pointcloud_pred_noise"] = field_outputs_noise
+                outputs["pointcloud_pred"] = field_outputs
+                
+
             CONSOLE.print("Forward - feature transformer: ", time5 - time4)
             CONSOLE.print("Forward - decoder: ", time6 - time5)
             CONSOLE.print("Forward - head: ", time7 - time6)
@@ -581,10 +620,15 @@ class NeuralSemanticFieldModel(Model):
             with torch.no_grad():
                 confusion = self.confusion_non_normalized(torch.argmax(outputs["semantics"], dim=-1), semantics).detach().cpu().numpy()
                 miou, per_class_iou = compute_mIoU(confusion)
+                total_acc, acc_per_class = calculate_accuracy(confusion)
                 # mIoU
                 metrics_dict["miou"] = miou
+                metrics_dict["acc"] = total_acc
                 for i, iou in enumerate(per_class_iou):
                     metrics_dict["iou_" + self.semantics.classes[i]] = iou
+                    
+                for i, acc in enumerate(acc_per_class):
+                    metrics_dict["acc_" + self.semantics.classes[i]] = acc
 
                 metrics_dict["miou_" + str(batch["model_idx"])] = metrics_dict["miou"]
         elif self.config.mode == "density":
@@ -606,10 +650,21 @@ class NeuralSemanticFieldModel(Model):
                 metrics_dict["density_mae"] = F.l1_loss(outputs["density_gt"], outputs["density_pred"])
                 metrics_dict["density_mae_" + str(batch["model_idx"])] = metrics_dict["density_mae"]
         elif self.config.mode == "normals":
-            normals_pred = outputs["normals_pred"][outputs["density_mask"].squeeze()]
-            normals_gt = outputs["normals_gt"][outputs["density_mask"].squeeze()]
+            normals_pred = outputs["normals_pred"]
+            normals_gt = outputs["normals_gt"]
             metrics_dict["dot"] = (1.0 - torch.sum(normals_gt * normals_pred, dim=-1)).mean(dim=-1)
-            metrics_dict["dot_" + str(batch["model_idx"])] = metrics_dict["dot"]
+            
+            if "normal_image" in batch:
+                density_mask = outputs["density_mask"].squeeze()
+                normals_all_pred = outputs["normals_all_pred"][density_mask]
+                normals_all_analytic = outputs["normals_all_gt"][density_mask]
+                normals_all_gt = batch["normal_image"][density_mask]
+                
+                metrics_dict["gt_analytic_dot"] = torch.sum(normals_all_gt * normals_all_analytic, dim=-1).mean(dim=-1)
+                metrics_dict["gt_analytic_dot_" + str(batch["model_idx"])] = metrics_dict["gt_analytic_dot"]
+                
+                metrics_dict["pred_analytic_dot"] = torch.sum(normals_all_pred * normals_all_analytic, dim=-1).mean(dim=-1)
+                metrics_dict["pred_analytic_dot_" + str(batch["model_idx"])] = metrics_dict["pred_analytic_dot"]
             
         return metrics_dict
 
@@ -620,13 +675,13 @@ class NeuralSemanticFieldModel(Model):
 
             model_output = outputs["rgb"][outputs["density_mask"].squeeze()]
             if self.config.rgb_prediction == "integration":
-                loss_dict["rgb_loss_" + str(batch["model_idx"])] = self.rgb_loss(image, model_output)
+                loss_dict["rgb_loss"] = self.rgb_loss(image, model_output)
             elif self.config.rgb_prediction == "direct":
-                loss_dict["rgb_loss_" + str(batch["model_idx"])] = self.rgb_loss(outputs["rgb_pred"], outputs["rgb_gt"])
+                loss_dict["rgb_loss"] = self.rgb_loss(outputs["rgb_pred"], outputs["rgb_gt"])
         elif self.config.mode == "semantics":
             pred = outputs["semantics"][outputs["density_mask"].squeeze()]
             gt = batch["semantics"][..., 0].long().to(self.device)[outputs["density_mask"].squeeze()]
-            loss_dict["semantics_loss_" + str(batch["model_idx"])] = self.cross_entropy_loss(pred, gt)
+            loss_dict["semantics_loss"] = self.cross_entropy_loss(pred, gt)
         elif self.config.mode == "density":
             if self.config.density_prediction == "direct":
                 loss_dict["density"] = self.density_loss(outputs["density_gt"], outputs["density_pred"])
@@ -638,6 +693,9 @@ class NeuralSemanticFieldModel(Model):
                 raise ValueError("Unknown density prediction mode: " + self.config.density_prediction)
         elif self.config.mode == "normals":
             loss_dict["dot"] = metrics_dict["dot"]
+            
+        if self.config.proximity_loss:
+            loss_dict["proximity_loss"] = torch.nn.functional.mse_loss(outputs["pointcloud_pred"], outputs["pointcloud_pred_noise"]) * self.config.proximity_loss_mult
         return loss_dict
 
     @torch.no_grad()
@@ -711,7 +769,7 @@ class NeuralSemanticFieldModel(Model):
                 # TODO: handle lists of tensors as well
                 continue
             if self.config.space_partitioning != "row_wise":
-                if  output_name == "normals_pred" or output_name == "normals_gt":
+                if  output_name == "normals_pred" or output_name == "normals_gt" or output_name == "pointcloud_pred" or output_name == "pointcloud_pred_noise":
                     continue
                 # TODO maybe fix later
                     unordered_output_tensor = torch.cat(outputs_list, dim=1).squeeze(0)
@@ -792,12 +850,17 @@ class NeuralSemanticFieldModel(Model):
             gt = batch["semantics"][..., 0].long().reshape(-1)
             confusion_non_normalized = self.confusion_non_normalized(torch.argmax(outs, dim=-1), gt).detach().cpu().numpy()
             miou, per_class_iou = compute_mIoU(confusion_non_normalized)
+            total_acc, acc_per_class = calculate_accuracy(confusion_non_normalized)
+
             # mIoU
             metrics_dict["miou"] = miou
+            metrics_dict["accuracy"] = total_acc
             metrics_dict["confusion_unnormalized"] = confusion_non_normalized
             for i, iou in enumerate(per_class_iou):
                 metrics_dict["iou_" + self.semantics.classes[i]] = iou
-                
+
+            for i, acc in enumerate(acc_per_class):
+                metrics_dict["acc_" + self.semantics.classes[i]] = acc
 
             confusion = self.confusion(torch.argmax(outs, dim=-1), gt).detach().cpu().numpy()
             if self.config.plot_confusion:
@@ -817,6 +880,29 @@ class NeuralSemanticFieldModel(Model):
                 images_dict["normals_all_pred"] = (outputs["normals_all_pred"] + 1.0) / 2.0
             if "normals_all_gt" in outputs:
                 images_dict["normals_all_gt"] = (outputs["normals_all_gt"] + 1.0) / 2.0
+            
+            if "normals_all_pred" in outputs and "normals_all_gt" in outputs:
+                normals_pred = outputs["normals_all_pred"][outputs["density_mask"].squeeze()]
+                normals_gt = outputs["normals_all_gt"][outputs["density_mask"].squeeze()]
+                metrics_dict["analytic_pred_dot"] = torch.sum(normals_gt * normals_pred, dim=-1).mean(dim=-1)
+            
+            if "normal_image" in batch:
+                images_dict["normals_gt"] = batch["normal_image"]
+                density_mask = outputs["density_mask"].squeeze()
+                normals_all_pred = outputs["normals_all_pred"][density_mask]
+                normals_all_analytic = outputs["normals_all_gt"][density_mask]
+                normals_all_gt = batch["normal_image"][density_mask]
+                
+                metrics_dict["gt_analytic_dot"] = torch.sum(normals_all_gt * normals_all_analytic, dim=-1).mean(dim=-1)
+                
+                metrics_dict["pred_analytic_dot"] = torch.sum(normals_all_gt * normals_all_gt, dim=-1).mean(dim=-1)
+
+            
+            normal_images = [outputs[key] for key in ["normals_all_pred", "normals_all_gt"] if key in images_dict]
+            if "normal_image" in batch:
+                normal_images.append(batch["normal_image"])
+
+            images_dict["img"] = torch.cat(normal_images, dim=1)
         # plotly show image
         if self.config.debug_show_image:
             fig = px.imshow(images_dict["img"].cpu().numpy())

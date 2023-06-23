@@ -52,14 +52,8 @@ class InputDataset(Dataset):
 
     def __len__(self):
         return len(self._dataparser_outputs.image_filenames)
-
-    def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
-        """Returns the image of shape (H, W, 3 or 4).
-
-        Args:
-            image_idx: The image index in the dataset.
-        """
-        image_filename = self._dataparser_outputs.image_filenames[image_idx]
+    
+    def get_numpy_image_from_path(self, image_filename: Path) -> npt.NDArray[np.uint8]:
         pil_image = Image.open(image_filename)
         if self.scale_factor != 1.0:
             width, height = pil_image.size
@@ -71,6 +65,16 @@ class InputDataset(Dataset):
         assert len(image.shape) == 3
         assert image.dtype == np.uint8
         assert image.shape[2] in [3, 4], f"Image shape of {image.shape} is in correct."
+        return image
+
+    def get_numpy_image(self, image_idx: int) -> npt.NDArray[np.uint8]:
+        """Returns the image of shape (H, W, 3 or 4).
+
+        Args:
+            image_idx: The image index in the dataset.
+        """
+        image_filename = self._dataparser_outputs.image_filenames[image_idx]
+        image = self.get_numpy_image_from_path(image_filename)
         return image
 
     def get_image(self, image_idx: int) -> TensorType["image_height", "image_width", "num_channels"]:

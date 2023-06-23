@@ -1,6 +1,7 @@
 import logging
 import shutil
 import sys
+import traceback
 from time import sleep
 
 sys.path.extend(["/usr/lib/x86_64-linux-gnu", "/data/vision/polina/users/clintonw/anaconda3/envs/cuda11/lib"])
@@ -53,7 +54,7 @@ def main():
     # --- CLI arguments
     parser = kb.ArgumentParser()
     # Configuration for the objects of the scene
-    parser.add_argument("--objects_set", choices=["clevr", "kubasic"], default="clevr")
+    parser.add_argument("--objects_set", choices=["clevr", "kubasic"], default="kubasic")
     parser.add_argument("--min_num_objects", type=int, default=3, help="minimum number of objects")
     parser.add_argument("--max_num_objects", type=int, default=7, help="maximum number of objects")
     # Configuration for the floor and background
@@ -209,6 +210,7 @@ def main():
                         shape_index = rng.randint(0, len(KUBASIC_OBJECTS))
                         shape_name = KUBASIC_OBJECTS[shape_index]
                         size_label, size = kb.randomness.sample_sizes("uniform", rng)
+                        size *= 2
                         color_label, random_color = kb.randomness.sample_color("uniform_hue", rng)
 
                     material_name = rng.choice(["metal", "rubber"])
@@ -253,7 +255,7 @@ def main():
                 print("Added all objects done.")
                 logging.info("Rendering the scene ...")
                 # layers = ['rgba', 'depth', 'segmentation', 'normal', 'object_coordinates']
-                layers = ["rgba", "segmentation"]
+                layers = ["rgba", "segmentation", "depth", "normal"]
                 data_stack = renderer.render(return_layers=layers)
                 print("render done")
 
@@ -322,6 +324,7 @@ def main():
         #         kb.done()
             except Exception as e:
                 print("Failure due to error: ", e)
+                traceback.print_exc()
                 # sleep(1)
                 continue
         if try_num >=3:
@@ -333,4 +336,5 @@ def main():
 
 
 if __name__ == "__main__":
+    print("Starting main")
     main()

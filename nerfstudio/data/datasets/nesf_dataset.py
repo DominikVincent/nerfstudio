@@ -1,5 +1,6 @@
 from typing import Dict, List
 
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 
@@ -35,6 +36,8 @@ class NesfItemDataset(InputDataset):
         # get depth image
         self.depth_filenames = self.metadata["depth_filenames"]
         self.depth_unit_scale_factor = self.metadata["depth_unit_scale_factor"]
+        self.normal_filenames = self.metadata["normal_filenames"] if "normal_filenames" in self.metadata.keys() else None
+        
         
         print("NesfItemDataset - memory usage: ", get_memory_usage())
 
@@ -55,8 +58,15 @@ class NesfItemDataset(InputDataset):
         depth_image = get_depth_image_from_path(
             filepath=filepath, height=height, width=width, scale_factor=scale_factor
         ).float()
+        
+        metadata = {"model_path": str(self.model_path), "semantics": semantic_label, "depth_image": depth_image}
+        if self.normal_filenames is not None:
+            normal_filepath = self.normal_filenames[data["image_idx"]]
+            normal_image = torch.from_numpy(self.get_numpy_image_from_path(normal_filepath).astype("float32") / 255.0)
+            normal_image = normal_image / np.linalg.norm(normal_image, axis=-1, keepdims=True)
+            metadata.update({"normal_image": normal_image})
             
-        return {"model_path": str(self.model_path), "semantics": semantic_label, "depth_image": depth_image}
+        return metadata
     
 
 class NesfDataset(Dataset):

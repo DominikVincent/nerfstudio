@@ -15,6 +15,7 @@ def run_nesf(vis: str = "wandb"):
     # data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config.json")
     # data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json")
     # data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_100.json")
+    # data_config_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_10.json")
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_1.json"
     # )
@@ -24,6 +25,9 @@ def run_nesf(vis: str = "wandb"):
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_10.json"
     # )
+    data_config_path = Path(
+        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klevr-normal_train_10_230.json"
+    )
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
     # )
@@ -49,9 +53,9 @@ def run_nesf(vis: str = "wandb"):
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_529_270.json"
     # )
-    data_config_path = Path(
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_270.json"
-    )
+    # data_config_path = Path(
+    #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_10_270.json"
+    # )
 
     OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/")
     DATA_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11")
@@ -65,13 +69,13 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.machine.num_gpus = 1
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
-    trainConfig.steps_per_eval_batch = 25
-    trainConfig.steps_per_eval_image = 25
+    trainConfig.steps_per_eval_batch = 2
+    trainConfig.steps_per_eval_image = 3
     trainConfig.steps_per_eval_all_images = 100000000
     trainConfig.max_num_iterations = 10000000
     
     trainConfig.pipeline.datamanager.use_sample_mask = False
-    trainConfig.pipeline.datamanager.sample_mask_ground_percentage = 0.2
+    trainConfig.pipeline.datamanager.sample_mask_ground_percentage = 1
     trainConfig.pipeline.datamanager.steps_per_model = 1
     trainConfig.pipeline.datamanager.train_num_images_to_sample_from = 8
     trainConfig.pipeline.datamanager.train_num_times_to_repeat_images = 1
@@ -79,18 +83,23 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.eval_num_times_to_repeat_images = 1
     
     trainConfig.pipeline.model.pretrain = False
-    trainConfig.pipeline.model.mode = "semantics"
+    trainConfig.pipeline.model.only_last_layer = False
+    trainConfig.pipeline.model.mode = "normals"
     trainConfig.pipeline.model.batching_mode = "off"
     trainConfig.pipeline.model.batch_size = 2048
+    trainConfig.pipeline.model.proximity_loss = False
+    trainConfig.pipeline.model.feature_generator_config.rot_augmentation = False
+    trainConfig.pipeline.model.feature_generator_config.jitter = 0.001
     
     trainConfig.pipeline.model.sampler.surface_sampling = True
     trainConfig.pipeline.model.sampler.get_normals = True
     trainConfig.pipeline.model.sampler.samples_per_ray = 16
-    trainConfig.pipeline.model.sampler.ground_removal_mode = "ransac"
-    trainConfig.pipeline.model.sampler.ground_tolerance = 0.01
+    trainConfig.pipeline.model.sampler.ground_removal_mode = "none"
+    trainConfig.pipeline.model.sampler.ground_tolerance = 0.008
     trainConfig.pipeline.model.sampler.surface_threshold = 0.5
+    trainConfig.pipeline.model.sampler.ground_points_count = 1000000
     
-    trainConfig.pipeline.model.masker_config.mode = "patch"
+    trainConfig.pipeline.model.masker_config.mode = "random"
     trainConfig.pipeline.model.masker_config.mask_ratio = 0.0
     trainConfig.pipeline.model.masker_config.num_patches = 400
     trainConfig.pipeline.model.rgb_prediction = "integration"
@@ -108,9 +117,9 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.feature_transformer_custom_config.dim_feed_forward = 128
     trainConfig.pipeline.model.feature_transformer_custom_config.feature_dim = 128
     
-    trainConfig.pipeline.model.feature_transformer_stratified_config.grid_size = 0.01
+    trainConfig.pipeline.model.feature_transformer_stratified_config.grid_size = 0.005
     trainConfig.pipeline.model.feature_transformer_stratified_config.window_size = 5
-    trainConfig.pipeline.model.feature_transformer_stratified_config.quant_size = 0.0025
+    trainConfig.pipeline.model.feature_transformer_stratified_config.quant_size = 0.0001
     trainConfig.pipeline.model.feature_transformer_stratified_config.num_layers = 4
     
     
@@ -120,9 +129,9 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.feature_decoder_custom_config.dim_feed_forward = 128
     trainConfig.pipeline.model.feature_decoder_custom_config.feature_dim = 128
     
-    trainConfig.pipeline.model.feature_decoder_stratified_config.grid_size = 0.002
+    trainConfig.pipeline.model.feature_decoder_stratified_config.grid_size = 0.005
     trainConfig.pipeline.model.feature_decoder_stratified_config.window_size = 5
-    trainConfig.pipeline.model.feature_decoder_stratified_config.quant_size = 0.0005
+    trainConfig.pipeline.model.feature_decoder_stratified_config.quant_size = 0.0001
     trainConfig.pipeline.model.feature_decoder_stratified_config.num_layers = 3
     trainConfig.pipeline.model.feature_decoder_stratified_config.depths = [2,2,4]
     

@@ -94,7 +94,7 @@ conda activate nerfstudio2
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p {partition} --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p {partition} --exclude=fennel --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output

@@ -289,6 +289,18 @@ class NerfactoModel(Model):
         metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
         if self.training:
             metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
+            
+        if "normal_image" in batch:
+            with torch.no_grad():
+                normals_gt = batch["normal_image"] * 2 - 1
+                normals_analytic = outputs["normals"] / torch.norm(outputs["normals"], dim=-1, keepdim=True)
+                normals_pred = outputs["pred_normals"] / torch.norm(outputs["pred_normals"], dim=-1, keepdim=True)
+                if "normals" in outputs:
+                    # compute alignment error via dot product between predicted and ground truth normals
+                    metrics_dict["analytic_normals_dot_error"] = torch.sum(normals_gt * normals_analytic, dim=-1).mean().item()
+                    
+                if "pred_normals" in outputs:
+                    metrics_dict["predicted_normals_dot_error"] = torch.sum(normals_gt * normals_pred, dim=-1).mean().item()
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
@@ -348,7 +360,10 @@ class NerfactoModel(Model):
             images_dict["normals"] = (outputs["normals"] + 1.0) / 2.0
         if "pred_normals" in outputs:
             images_dict["pred_normals"] = (outputs["pred_normals"] + 1.0) / 2.0
-
+        if "normal_image" in batch:
+            images_dict["normal_gt"] = batch["normal_image"]
+        if "normals" in outputs and "normal_image" in batch and "pred_normals" in outputs:
+            images_dict["all_normals"] = torch.cat([images_dict["normals"], images_dict["normal_gt"], images_dict["pred_normals"]], dim=1)
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"
             prop_depth_i = colormaps.apply_depth_colormap(
@@ -356,5 +371,17 @@ class NerfactoModel(Model):
                 accumulation=outputs["accumulation"],
             )
             images_dict[key] = prop_depth_i
+            
+        if "normal_image" in batch:
+            with torch.no_grad():
+                normals_gt = batch["normal_image"] * 2 - 1
+                normals_analytic = outputs["normals"] / torch.norm(outputs["normals"], dim=-1, keepdim=True)
+                normals_pred = outputs["pred_normals"] / torch.norm(outputs["pred_normals"], dim=-1, keepdim=True)
+                if "normals" in outputs:
+                    # compute alignment error via dot product between predicted and ground truth normals
+                    metrics_dict["analytic_normals_dot_error"] = torch.sum(normals_gt * normals_analytic, dim=-1)[(batch["depth_image"]<1).squeeze()].mean().item()
+                    
+                if "pred_normals" in outputs:
+                    metrics_dict["predicted_normals_dot_error"] = torch.sum(normals_gt * normals_pred, dim=-1)[(batch["depth_image"]<1).squeeze()].mean().item()
 
         return metrics_dict, images_dict

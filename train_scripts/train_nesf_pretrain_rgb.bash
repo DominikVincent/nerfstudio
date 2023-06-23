@@ -30,7 +30,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.train-num-rays-per-batch $RAYS \
 	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
 	--pipeline.datamanager.use-sample-mask True \
-    --pipeline.datamanager.sample-mask-ground-percentage 0.2 \
+    --pipeline.datamanager.sample-mask-ground-percentage 1.0 \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
 	--pipeline.model.sampler.surface-sampling True \
 	--pipeline.model.sampler.samples-per-ray 16 \
