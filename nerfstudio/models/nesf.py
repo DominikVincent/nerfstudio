@@ -51,8 +51,8 @@ class NeuralSemanticFieldConfig(ModelConfig):
     background_color: Literal["random", "last_sample"] = "last_sample"
     """Whether to randomize the background color."""
 
-    mode: Literal["rgb", "semantics", "density", "normals"] = "rgb"
-    """The mode in which the model is trained. It predicts whatever mode is chosen. Density is only used for pretraining."""
+    mode: Literal["rgb", "semantics", "density", "normals", "normals,rgb"] = "rgb"
+    """The mode in which the model is trained. It predicts whatever mode is chosen. Density is only used for pretraining. In ztheory any combinations of the modes is also possible."""
 
     sampler: SceneSamplerConfig = SceneSamplerConfig()
     """The sampler used in the model."""
@@ -88,7 +88,7 @@ class NeuralSemanticFieldConfig(ModelConfig):
 
     density_prediction: Literal["direct", "integration"] = "direct"
     """How to train the density prediction. With the direct nerf density output or throught the integration process"""
-    density_cutoff: float = 1e8
+    density_cutoff: float = 2e4
     """Large density values might be an issue for training. Hence they can get cut off with this."""
     
     rgb_prediction: Literal["direct", "integration"] = "integration"
@@ -134,6 +134,8 @@ class NeuralSemanticFieldModel(Model):
         assert "semantics" in metadata.keys() and isinstance(metadata["semantics"], Semantics)
         self.semantics: Semantics = metadata["semantics"]
         self.broken_normals = {}
+        if not any(mode in config.mode for mode in ["rgb", "semantics", "density", "normals"]):
+            raise ValueError(f"Unknown mode {self.config.mode}")
         super().__init__(config=config, **kwargs)
 
     def get_training_callbacks(
@@ -143,16 +145,12 @@ class NeuralSemanticFieldModel(Model):
 
     def populate_modules(self):
         # Losses
-        if self.config.mode == "rgb":
-            # self.rgb_loss = MSELoss()
-            self.rgb_loss = torch.nn.L1Loss()
-        elif self.config.mode == "semantics":
-            self.cross_entropy_loss = torch.nn.CrossEntropyLoss(
+        self.rgb_loss = torch.nn.L1Loss()
+        self.cross_entropy_loss = torch.nn.CrossEntropyLoss(
                 # weight=torch.tensor([1.0, 32.0, 32.0, 32.0, 32.0, 32.0]),
                 reduction="mean"
             )
-        elif self.config.mode == "density":
-            self.density_loss = torch.nn.L1Loss()
+        self.density_loss = torch.nn.L1Loss()
 
         # Metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -166,36 +164,23 @@ class NeuralSemanticFieldModel(Model):
         self.feature_model: FeatureGeneratorTorch = self.config.feature_generator_config.setup(aabb=self.scene_box.aabb)
 
         # Feature Transformer
-        # TODO make them customizable
-        if self.config.mode == "rgb":
-            output_size = 3
-        elif self.config.mode == "semantics":
-            output_size = len(self.semantics.classes)
-        elif self.config.mode == "density":
-            output_size = 1
-        elif self.config.mode == "normals":
-            output_size = 3
-        else:
-            raise ValueError(f"Unknown mode {self.config.mode}")
+        semantic_classes_count = len(self.semantics.classes)
 
         # restrict to positive values if predicting density or rgb
-        activation = (
-            torch.nn.ReLU() if self.config.mode == "rgb" or self.config.mode == "density" else torch.nn.Identity()
-        )
         if self.config.feature_transformer_model == "pointnet":
             self.feature_transformer = self.config.feature_transformer_pointnet_config.setup(
                 input_size=self.feature_model.get_out_dim(),
-                activation=activation,
+                activation=torch.nn.ReLU(),
             )
         elif self.config.feature_transformer_model == "custom":
             self.feature_transformer = self.config.feature_transformer_custom_config.setup(
                 input_size=self.feature_model.get_out_dim(),
-                activation=activation,
+                activation=torch.nn.ReLU(),
             )
         elif self.config.feature_transformer_model == "stratified":
             self.feature_transformer = self.config.feature_transformer_stratified_config.setup(
                 input_size=self.feature_model.get_out_dim(),
-                activation=activation,
+                activation=torch.nn.ReLU(),
             )
         else:
             raise ValueError(f"Unknown feature transformer config {self.config.feature_transformer_model}")
@@ -208,51 +193,76 @@ class NeuralSemanticFieldModel(Model):
             if self.config.feature_decoder_model == "pointnet":
                 self.decoder = self.config.feature_decoder_pointnet_config.setup(
                     input_size=self.feature_transformer.get_out_dim(),
-                    activation=activation,
+                    activation=torch.nn.ReLU(),
                 )
             elif self.config.feature_decoder_model == "custom":
                 self.decoder = self.config.feature_decoder_custom_config.setup(
                     input_size=self.feature_transformer.get_out_dim(),
-                    activation=activation,
+                    activation=torch.nn.ReLU(),
                 )
             elif self.config.feature_decoder_model == "stratified":
                 self.decoder = self.config.feature_decoder_stratified_config.setup(
                     input_size=self.feature_transformer.get_out_dim(),
-                    activation=activation,
+                    activation=torch.nn.ReLU(),
                 )
             else:
                 raise ValueError(f"Unknown feature transformer config {self.config.feature_decoder_model}")
 
-            self.head = torch.nn.Sequential(
-                torch.nn.Linear(self.decoder.get_out_dim(), output_size),
-                activation,
-            )
+            if "rgb" in self.config.mode:
+                self.head_rgb = torch.nn.Sequential(
+                    torch.nn.Linear(self.decoder.get_out_dim(), 3),
+                    torch.nn.ReLU(),
+                )
+            if "semantics" in self.config.mode:
+                self.head_semantics = torch.nn.Sequential(
+                    torch.nn.Linear(self.decoder.get_out_dim(), semantic_classes_count),
+                    torch.nn.Softmax(dim=1),
+                )
+            if "density" in self.config.mode:
+                self.head_density = torch.nn.Sequential(
+                    torch.nn.Linear(self.decoder.get_out_dim(), 1),
+                    torch.nn.ReLU(),
+                )
+            if "normals" in self.config.mode:
+                self.head_normals = torch.nn.Sequential(
+                    torch.nn.Linear(self.decoder.get_out_dim(), 3),
+                    torch.nn.Tanh(),
+                )
+          
         else:
             self.decoder = torch.nn.Identity()
 
-            self.head = torch.nn.Sequential(
+            self.head_semantics = torch.nn.Sequential(
                 torch.nn.Linear(self.feature_transformer.get_out_dim(), 128),
                 torch.nn.ReLU(),
                 torch.nn.Linear(128, 128),
                 torch.nn.ReLU(),
-                torch.nn.Linear(128, output_size),
-                activation,
+                torch.nn.Linear(128, semantic_classes_count)
             )
         # self.learned_low_density_value = torch.nn.Parameter(torch.randn(output_size) * 0.1 + 0.8)
-        self.learned_low_density_value = torch.nn.Parameter(torch.zeros(output_size) * 0.1 + 0.8, requires_grad=False)
-        self.learned_low_density_value[0] = 1.0
+        self.learned_low_density_value_semantics = torch.nn.Parameter(torch.zeros(semantic_classes_count) * 0.1 + 0.8, requires_grad=False)
+        self.learned_low_density_value_semantics[0] = 1.0
+
+        self.learned_low_density_value_rgb = torch.nn.Parameter(torch.zeros(3) * 0.1 + 0.8, requires_grad=False)
+        self.learned_low_density_value_normals = torch.nn.Parameter(torch.randn(3) * 0.1 + 0.8, requires_grad=True)
+        self.learned_low_density_value_density = torch.nn.Parameter(torch.randn(1) * 0.1 + 0.8, requires_grad=True)
+
 
         # Renderer
-        if self.config.mode == "rgb":
+        head_params = {}
+        if "rgb" in self.config.mode:
             self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
-        elif self.config.mode == "semantics":
+            head_params["rgb"] = sum(p.numel() for p in self.head_rgb.parameters())
+        if "semantics" in self.config.mode:
             self.renderer_semantics = SemanticRenderer()
-        elif self.config.mode == "density":
+            head_params["semantics"] = sum(p.numel() for p in self.head_semantics.parameters())
+        if "density" in self.config.mode:
             self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
-        elif self.config.mode == "normals":
-            # No rendering if we predict normals
+            head_params["density"] = sum(p.numel() for p in self.head_density.parameters())
+        if "normals" in self.config.mode:
             self.renderer_normals = NormalsRenderer()
-        else:
+            head_params["normals"] = sum(p.numel() for p in self.head_normals.parameters())
+        if not any(mode in self.config.mode for mode in ["rgb", "semantics", "density", "normals"]):
             raise ValueError(f"Unknown mode {self.config.mode}")
 
         # This model gets used if no model gets passed in the batch, e.g. when using the viewer
@@ -260,13 +270,15 @@ class NeuralSemanticFieldModel(Model):
 
         # count parameters
         total_params = sum(p.numel() for p in self.parameters())
+        
         put_config(
             "network parameters",
             {
                 "feature_generator_parameters": sum(p.numel() for p in self.feature_model.parameters()),
                 "feature_transformer_parameters": sum(p.numel() for p in self.feature_transformer.parameters()),
                 "decoder_parameters": sum(p.numel() for p in self.decoder.parameters()),
-                "head_parameters": sum(p.numel() for p in self.head.parameters()),
+                **head_params,
+
                 "total_parameters": total_params,
             },
             0,
@@ -276,11 +288,7 @@ class NeuralSemanticFieldModel(Model):
             "Feature Transformer has", sum(p.numel() for p in self.feature_transformer.parameters()), "parameters"
         )
         CONSOLE.print("Decoder has", sum(p.numel() for p in self.decoder.parameters()), "parameters")
-        CONSOLE.print("Head has", sum(p.numel() for p in self.head.parameters()), "parameters")
-
         CONSOLE.print("The number of NeSF parameters is: ", total_params)
-
-        return
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:
         masker_param_list = list(self.masker.parameters()) if self.config.pretrain else []
@@ -322,14 +330,24 @@ class NeuralSemanticFieldModel(Model):
         else:
             decoder_transformer_params = list(self.decoder.parameters())
         
+        head_parameters = []
+        if "rgb" in self.config.mode:
+            head_parameters += list(self.head_rgb.parameters())
+        if "semantics" in self.config.mode:
+            head_parameters += list(self.head_semantics.parameters())
+        if "density" in self.config.mode:
+            head_parameters += list(self.head_density.parameters())
+        if "normals" in self.config.mode:
+            head_parameters += list(self.head_normals.parameters())
+
         param_groups = {
             "feature_network": list(self.feature_model.parameters()),
             "feature_transformer": feature_transformer_params,
             "feature_transformer_transformer": feature_transformer_transformer_params,
-            "learned_low_density_params": [self.learned_low_density_value] + masker_param_list,
+            "learned_low_density_params": [self.learned_low_density_value_density, self.learned_low_density_value_normals, self.learned_low_density_value_rgb, self.learned_low_density_value_semantics] + masker_param_list,
             "decoder": decoder_params,
             "decoder_transformer": decoder_transformer_params,
-            "head": list(self.head.parameters()),
+            "head": head_parameters,
         }
 
         # filter the empty ones
@@ -339,11 +357,22 @@ class NeuralSemanticFieldModel(Model):
 
         return param_groups
 
+    def check_broken_normals(self, field_outputs_raw, model_idx):
+        normals = field_outputs_raw[FieldHeadNames.NORMALS]
+        normals_pred = field_outputs_raw[FieldHeadNames.PRED_NORMALS]
+        normals_std = torch.std(normals, dim=0)
+        normals_pred_std = torch.std(normals_pred, dim=0)
+        normal_total_std = torch.sum(normals_std)
+        normal_pred_total_std = torch.sum(normals_pred_std)
+        
+        CONSOLE.print("Total std of      normals: ", normal_total_std)
+        CONSOLE.print("Total std of pred_normals: ", normal_pred_total_std)
+        if normal_pred_total_std < 0.1:
+            self.broken_normals[model_idx] = True
+
     @profiler.time_function
     def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None):
         model: Model = self.get_model(batch)
-
-        
 
         # all but density mask are by filtered dimension
         time1 = time.time()
@@ -357,17 +386,7 @@ class NeuralSemanticFieldModel(Model):
         all_samples_count = density_mask.shape[0]*density_mask.shape[1]
         CONSOLE.print("Ray samples used", weights.shape[0], "out of", all_samples_count, "samples")
         
-        # normals = field_outputs_raw[FieldHeadNames.NORMALS]
-        # normals_pred = field_outputs_raw[FieldHeadNames.PRED_NORMALS]
-        # normals_std = torch.std(normals, dim=0)
-        # normals_pred_std = torch.std(normals_pred, dim=0)
-        # normal_total_std = torch.sum(normals_std)
-        # normal_pred_total_std = torch.sum(normals_pred_std)
-        
-        # CONSOLE.print("Total std of      normals: ", normal_total_std)
-        # CONSOLE.print("Total std of pred_normals: ", normal_pred_total_std)
-        # if normal_pred_total_std < 0.1:
-        #     self.broken_normals[batch["model_idx"]] = True
+    #    self.check_broken_normals(field_outputs_raw, batch["model_idx"])
         
         # def get_fake_output(size: int):
         #     # gt_value = torch.zeros(size, self.learned_low_density_value.shape[0]).to(self.learned_low_density_value.device)
@@ -401,6 +420,7 @@ class NeuralSemanticFieldModel(Model):
         CONSOLE.print("Forward - feature model: ", time4 - time3)
         CONSOLE.print("Forward - Processing pointcloud: ", outs.shape)
         outputs = {}
+        field_outputs_dict = {}
         if self.config.pretrain:
             # remove all the masked points from outs. The masks tells which points got removed.
             time5 = time.time()
@@ -412,7 +432,14 @@ class NeuralSemanticFieldModel(Model):
             time8 = time.time()
             outs = self.decoder(outs, batch=transform_batch)
             time9 = time.time()
-            field_outputs = self.head(outs)
+            if "rgb" in self.config.mode:
+                field_outputs_dict["rgb"] = self.head_rgb(outs)
+            if "density" in self.config.mode:
+                field_outputs_dict["density"] = self.head_density(outs)
+            if "semantics" in self.config.mode:
+                field_outputs_dict["semantics"] = self.head_semantics(outs)
+            if "normals" in self.config.mode:
+                field_outputs_dict["normals"] = self.head_normals(outs)
             time10 = time.time()
             CONSOLE.print("Forward - masking: ", time6 - time5)
             CONSOLE.print("Forward - feature transformer: ", time7 - time6)
@@ -425,7 +452,7 @@ class NeuralSemanticFieldModel(Model):
             time5 = time.time()
             field_encodings = self.decoder(field_encodings)
             time6 = time.time()
-            field_outputs = self.head(field_encodings)
+            field_outputs_dict["semantics"] = self.head_semantics(field_encodings)
             time7 = time.time()
             
             if self.config.proximity_loss:
@@ -433,9 +460,9 @@ class NeuralSemanticFieldModel(Model):
                 outs_noise, transform_batch_noise = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
                 field_encodings_noise = self.feature_transformer(outs_noise, batch=transform_batch_noise)
                 field_encodings_noise = self.decoder(field_encodings_noise)
-                field_outputs_noise = self.head(field_encodings_noise)
+                field_outputs_noise = self.head_semantics(field_encodings_noise)
                 outputs["pointcloud_pred_noise"] = field_outputs_noise
-                outputs["pointcloud_pred"] = field_outputs
+                outputs["pointcloud_pred"] = field_outputs_dict["semantics"] 
                 
 
             CONSOLE.print("Forward - feature transformer: ", time5 - time4)
@@ -445,31 +472,35 @@ class NeuralSemanticFieldModel(Model):
         time11 = time.time()
         # unbatch the data
         if self.config.batching_mode != "off":
-            field_outputs = field_outputs.reshape(1, -1, field_outputs.shape[-1])
+            for k, v in field_outputs_dict.items():
+                field_outputs_dict[k] = v.reshape(1, -1, v.shape[-1])
+
             for k, v in field_outputs_raw.items():
                 field_outputs_raw[k] = v.reshape(1, -1, v.shape[-1])
 
             # reshuffle results
-            field_outputs = field_outputs[:, transform_batch["ids_restore"], :]
+            for k, v in field_outputs_dict.items():
+                field_outputs_dict[k] = v[:, transform_batch["ids_restore"], :]
             for k, v in field_outputs_raw.items():
                 field_outputs_raw[k] = v[:, transform_batch["ids_restore"], :]
             
             # removed padding token
-            field_outputs = field_outputs[:, : ray_samples.shape[0], :]
+            for k, v in field_outputs_dict.items():
+                field_outputs_dict[k] = v[:, : ray_samples.shape[0], :]
             for k, v in field_outputs_raw.items():
                 field_outputs_raw[k] = v[:, : ray_samples.shape[0], :]
         time12 = time.time()
         CONSOLE.print("Forward - unbatching: ", time12 - time11)
         
-        if self.config.mode == "rgb":
+        if "rgb" in self.config.mode:
             # debug rgb
             rgb = torch.empty((*density_mask.shape, 3), device=self.device)
             weights_all = torch.zeros((*density_mask.shape, 1), device=self.device)  # 64, 48, 6
 
-            rgb[density_mask] = field_outputs
+            rgb[density_mask] = field_outputs_dict["rgb"]
             weights_all[density_mask] = weights
 
-            rgb[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value)
+            rgb[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value_rgb)
             weights_all[~density_mask] = 0.01
 
             rgb_integrated = self.renderer_rgb(rgb, weights=weights_all)
@@ -477,32 +508,17 @@ class NeuralSemanticFieldModel(Model):
             rgb_gt = original_fields_outputs[FieldHeadNames.RGB]
             outputs["rgb_gt"] = rgb_gt
             outputs["rgb_pred"] = rgb
-        elif self.config.mode == "semantics":
+        if "semantics" in self.config.mode:
             semantics = torch.zeros((*density_mask.shape, len(self.semantics.classes)), device=self.device)  # 64, 48, 6
             weights_all = torch.zeros((*density_mask.shape, 1), device=self.device)  # 64, 48, 6
 
+            # in case of 3d sampling, we need to add the weights
             if ray_bundle.nears is not None:
                 weights = weights + 1.0
-            # print(semantics.numel() * semantics.element_size() / 1024**2)
 
-            # print(
-            #     "semantics: ",
-            #     semantics.shape,
-            #     " field_outputs: ",
-            #     field_outputs.shape,
-            #     " density_mask: ",
-            #     density_mask.shape,
-            #     "density_mask sum: ",
-            #     density_mask.sum(),
-            #     " density_mask: ",
-            #     density_mask,
-            #     " field_outputs: ",
-            #     field_outputs.shape,
-            # )
-            semantics[density_mask] = field_outputs  # 1, num_dense_samples, 6
+            semantics[density_mask] = field_outputs_dict["semantics"]  # 1, num_dense_samples, 6
             weights_all[density_mask] = weights
 
-            # semantics[~density_mask] = self.learned_low_density_value
             semantics[~density_mask] = torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], device=self.device)
             weights_all[~density_mask] = 0.01
 
@@ -519,12 +535,14 @@ class NeuralSemanticFieldModel(Model):
 
             # print the count of the different labels
             # CONSOLE.print("Label counts:", torch.bincount(semantic_labels.flatten()))
-        elif self.config.mode == "density":
+        if "density" in self.config.mode:
             density = torch.empty((*density_mask.shape, 1), device=self.device)
-            density[density_mask] = field_outputs
-            density[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value)
+            density[density_mask] = field_outputs_dict["density"]
+            # density[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value_density)
+            density[~density_mask] = 0.0
+
             # make it predict logarithmic density instead
-            density = torch.exp(density) - 1
+            density = torch.exp(density) - 1.0
 
             weights = original_fields_outputs["ray_samples"].get_weights(density)
 
@@ -546,10 +564,10 @@ class NeuralSemanticFieldModel(Model):
                         },
                         step=wandb.run.step,
                     )
-        elif self.config.mode == "normals":
+        if "normals" in self.config.mode:
             time13 = time.time()
             # normalize to unit vecctors
-            field_outputs = field_outputs / torch.norm(field_outputs, dim=-1, keepdim=True)
+            field_outputs = torch.nn.functional.normalize(field_outputs_dict["normals"], dim=-1)
             
             outputs["normals_pred"] = field_outputs
             outputs["normals_gt"] = field_outputs_raw[FieldHeadNames.PRED_NORMALS] if FieldHeadNames.PRED_NORMALS in field_outputs_raw else field_outputs_raw[FieldHeadNames.NORMALS] 
@@ -561,19 +579,17 @@ class NeuralSemanticFieldModel(Model):
             normals_all[density_mask] = field_outputs
             weights_all[density_mask] = weights
 
-            normals_all[~density_mask] = torch.nn.functional.relu(self.learned_low_density_value)
+            normals_all[~density_mask] = torch.nn.functional.normalize(torch.nn.functional.tanh(self.learned_low_density_value_normals), dim=-1)
             weights_all[~density_mask] = 0.00001
             
             
             original_normals = original_fields_outputs[FieldHeadNames.PRED_NORMALS] if FieldHeadNames.PRED_NORMALS in original_fields_outputs else original_fields_outputs[FieldHeadNames.NORMALS]
             time14 = time.time()
-            outputs["normals_all_pred"] = self.renderer_normals(normals_all, weights=weights_all)
-            outputs["normals_all_gt"] = self.renderer_normals(original_normals, weights=weights_all)
+            outputs["normals_all_pred"] = torch.nn.functional.normalize(self.renderer_normals(normals_all, weights=weights_all), dim=-1)
+            outputs["normals_all_gt"] = torch.nn.functional.normalize(self.renderer_normals(original_normals, weights=weights_all), dim=-1)
             time15 = time.time()
             CONSOLE.print("Forward - data post processing time: ", time15 - time14)
             CONSOLE.print("Forward - render: ", time14 - time13)
-        else:
-            raise ValueError("Unknown mode: " + self.config.mode)
         
         if self.config.visualize_semantic_pc:
             assert self.config.mode == "semantics"
@@ -582,7 +598,6 @@ class NeuralSemanticFieldModel(Model):
             visualize_point_batch(transform_batch["points_xyz"], classes=torch.argmax(field_outputs, dim=-1))
         
         outputs["density_mask"] = density_mask
-        torch.cuda.empty_cache()
 
         return outputs
 
@@ -603,7 +618,7 @@ class NeuralSemanticFieldModel(Model):
         if "eval_model_idx" in batch:
             metrics_dict["eval_model_idx"] = batch["eval_model_idx"]
 
-        if self.config.mode == "rgb":
+        if "rgb" in self.config.mode:
             with torch.no_grad():
                 image = batch["image"].to(self.device)
                 metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
@@ -615,7 +630,7 @@ class NeuralSemanticFieldModel(Model):
                 metrics_dict["mae"] = F.l1_loss(outputs["rgb"], image)
                 metrics_dict["mae_" + str(batch["model_idx"])] = metrics_dict["mae"]
 
-        elif self.config.mode == "semantics":
+        if "semantics" in self.config.mode:
             semantics = batch["semantics"][..., 0].long().to(self.device)
             with torch.no_grad():
                 confusion = self.confusion_non_normalized(torch.argmax(outputs["semantics"], dim=-1), semantics).detach().cpu().numpy()
@@ -631,7 +646,7 @@ class NeuralSemanticFieldModel(Model):
                     metrics_dict["acc_" + self.semantics.classes[i]] = acc
 
                 metrics_dict["miou_" + str(batch["model_idx"])] = metrics_dict["miou"]
-        elif self.config.mode == "density":
+        if "density" in self.config.mode:
             image = batch["image"].to(self.device)
 
             with torch.no_grad():
@@ -649,7 +664,7 @@ class NeuralSemanticFieldModel(Model):
 
                 metrics_dict["density_mae"] = F.l1_loss(outputs["density_gt"], outputs["density_pred"])
                 metrics_dict["density_mae_" + str(batch["model_idx"])] = metrics_dict["density_mae"]
-        elif self.config.mode == "normals":
+        if "normals" in self.config.mode:
             normals_pred = outputs["normals_pred"]
             normals_gt = outputs["normals_gt"]
             metrics_dict["dot"] = (1.0 - torch.sum(normals_gt * normals_pred, dim=-1)).mean(dim=-1)
@@ -670,7 +685,7 @@ class NeuralSemanticFieldModel(Model):
 
     def get_loss_dict(self, outputs, batch: Dict[str, Any], metrics_dict=dict):
         loss_dict = {}
-        if self.config.mode == "rgb":
+        if "rgb" in self.config.mode:
             image = batch["image"].to(self.device)[outputs["density_mask"].squeeze()]
 
             model_output = outputs["rgb"][outputs["density_mask"].squeeze()]
@@ -678,11 +693,11 @@ class NeuralSemanticFieldModel(Model):
                 loss_dict["rgb_loss"] = self.rgb_loss(image, model_output)
             elif self.config.rgb_prediction == "direct":
                 loss_dict["rgb_loss"] = self.rgb_loss(outputs["rgb_pred"], outputs["rgb_gt"])
-        elif self.config.mode == "semantics":
+        if "semantics" in self.config.mode:
             pred = outputs["semantics"][outputs["density_mask"].squeeze()]
             gt = batch["semantics"][..., 0].long().to(self.device)[outputs["density_mask"].squeeze()]
             loss_dict["semantics_loss"] = self.cross_entropy_loss(pred, gt)
-        elif self.config.mode == "density":
+        if "density" in self.config.mode:
             if self.config.density_prediction == "direct":
                 loss_dict["density"] = self.density_loss(outputs["density_gt"], outputs["density_pred"])
             elif self.config.density_prediction == "integration":
@@ -691,7 +706,7 @@ class NeuralSemanticFieldModel(Model):
                 loss_dict["density"] = self.density_loss(image, model_output)
             else:
                 raise ValueError("Unknown density prediction mode: " + self.config.density_prediction)
-        elif self.config.mode == "normals":
+        if "normals" in self.config.mode:
             loss_dict["dot"] = metrics_dict["dot"]
             
         if self.config.proximity_loss:
@@ -790,11 +805,11 @@ class NeuralSemanticFieldModel(Model):
         images_dict = {}
         metrics_dict = {}
 
-        if self.config.mode == "rgb" or self.config.mode == "density":
+        if "rgb" in self.config.mode or "density" in self.config.mode:
             image = batch["image"].to(self.device)
             rgb = outputs["rgb"]
             combined_rgb = torch.cat([image, rgb], dim=1)
-            images_dict["img"] = combined_rgb
+            images_dict["imgs_rgb"] = combined_rgb
 
             # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
             image = torch.moveaxis(image, -1, 0)[None, ...]
@@ -819,11 +834,11 @@ class NeuralSemanticFieldModel(Model):
 
                     metrics_dict["density_mae"] = F.l1_loss(outputs["density_gt"], outputs["density_pred"]).item()
 
-        elif self.config.mode == "semantics":
+        if "semantics" in self.config.mode:
             semantics_colormap_gt = self.semantics.colors[batch["semantics"].squeeze(-1).to("cpu")].to(self.device)
             semantics_colormap = outputs["semantics_colormap"]
             combined_semantics = torch.cat([semantics_colormap_gt, semantics_colormap], dim=1)
-            images_dict["img"] = combined_semantics
+            images_dict["imgs_semantics"] = combined_semantics
             images_dict["semantics_colormap"] = outputs["semantics_colormap"]
             images_dict["rgb_image"] = batch["image"]
             
@@ -875,7 +890,7 @@ class NeuralSemanticFieldModel(Model):
                     {"confusion_matrix": fig},
                     step=wandb.run.step,
                 )
-        elif self.config.mode == "normals":
+        if "normals" in self.config.mode:
             if "normals_all_pred" in outputs:
                 images_dict["normals_all_pred"] = (outputs["normals_all_pred"] + 1.0) / 2.0
             if "normals_all_gt" in outputs:
@@ -895,14 +910,14 @@ class NeuralSemanticFieldModel(Model):
                 
                 metrics_dict["gt_analytic_dot"] = torch.sum(normals_all_gt * normals_all_analytic, dim=-1).mean(dim=-1)
                 
-                metrics_dict["pred_analytic_dot"] = torch.sum(normals_all_gt * normals_all_gt, dim=-1).mean(dim=-1)
+                metrics_dict["pred_analytic_dot"] = torch.sum(normals_all_gt * normals_all_pred, dim=-1).mean(dim=-1)
 
             
-            normal_images = [outputs[key] for key in ["normals_all_pred", "normals_all_gt"] if key in images_dict]
+            normal_images = [images_dict[key] for key in ["normals_all_pred", "normals_all_gt"] if key in images_dict]
             if "normal_image" in batch:
                 normal_images.append(batch["normal_image"])
 
-            images_dict["img"] = torch.cat(normal_images, dim=1)
+            images_dict["imgs_normals"] = torch.cat(normal_images, dim=1)
         # plotly show image
         if self.config.debug_show_image:
             fig = px.imshow(images_dict["img"].cpu().numpy())

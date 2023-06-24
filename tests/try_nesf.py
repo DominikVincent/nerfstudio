@@ -25,9 +25,9 @@ def run_nesf(vis: str = "wandb"):
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_10.json"
     # )
-    data_config_path = Path(
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klevr-normal_train_10_230.json"
-    )
+    # data_config_path = Path(
+    #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klevr-normal_train_10_230.json"
+    # )
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
     # )
@@ -53,9 +53,9 @@ def run_nesf(vis: str = "wandb"):
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_529_270.json"
     # )
-    # data_config_path = Path(
-    #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_10_270.json"
-    # )
+    data_config_path = Path(
+        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_10_270.json"
+    )
 
     OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/")
     DATA_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11")
@@ -69,8 +69,8 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.machine.num_gpus = 1
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
-    trainConfig.steps_per_eval_batch = 2
-    trainConfig.steps_per_eval_image = 3
+    trainConfig.steps_per_eval_batch = 100
+    trainConfig.steps_per_eval_image = 250
     trainConfig.steps_per_eval_all_images = 100000000
     trainConfig.max_num_iterations = 10000000
     
@@ -82,25 +82,25 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.eval_num_images_to_sample_from = 8
     trainConfig.pipeline.datamanager.eval_num_times_to_repeat_images = 1
     
-    trainConfig.pipeline.model.pretrain = False
+    trainConfig.pipeline.model.pretrain = True
     trainConfig.pipeline.model.only_last_layer = False
-    trainConfig.pipeline.model.mode = "normals"
+    trainConfig.pipeline.model.mode = "density"
     trainConfig.pipeline.model.batching_mode = "off"
     trainConfig.pipeline.model.batch_size = 2048
     trainConfig.pipeline.model.proximity_loss = False
     trainConfig.pipeline.model.feature_generator_config.rot_augmentation = False
     trainConfig.pipeline.model.feature_generator_config.jitter = 0.001
     
-    trainConfig.pipeline.model.sampler.surface_sampling = True
+    trainConfig.pipeline.model.sampler.surface_sampling = False
     trainConfig.pipeline.model.sampler.get_normals = True
-    trainConfig.pipeline.model.sampler.samples_per_ray = 16
+    trainConfig.pipeline.model.sampler.samples_per_ray = 8
     trainConfig.pipeline.model.sampler.ground_removal_mode = "none"
     trainConfig.pipeline.model.sampler.ground_tolerance = 0.008
     trainConfig.pipeline.model.sampler.surface_threshold = 0.5
     trainConfig.pipeline.model.sampler.ground_points_count = 1000000
     
     trainConfig.pipeline.model.masker_config.mode = "random"
-    trainConfig.pipeline.model.masker_config.mask_ratio = 0.0
+    trainConfig.pipeline.model.masker_config.mask_ratio = 0.5
     trainConfig.pipeline.model.masker_config.num_patches = 400
     trainConfig.pipeline.model.rgb_prediction = "integration"
     trainConfig.pipeline.model.density_prediction = "direct"

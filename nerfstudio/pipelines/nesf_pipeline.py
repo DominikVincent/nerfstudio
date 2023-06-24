@@ -149,6 +149,7 @@ class NesfPipeline(Pipeline):
         
         CONSOLE.print(f"Time to get metrics dict: {time4 - time3}")
         CONSOLE.print(f"Time to get loss dict: {time5 - time4}")
+        torch.cuda.empty_cache()
 
         return transformer_model_outputs, loss_dict, metrics_dict
 
