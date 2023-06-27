@@ -31,7 +31,7 @@ class ComputePSNR:
     save_images: bool = False
     use_wandb: bool = False
     name: str = ""
-    wandb_name: str = "toybox-5-nesf"
+    wandb_name: str = "klevr-results"
 
     def main(self) -> None:
         """Main function."""

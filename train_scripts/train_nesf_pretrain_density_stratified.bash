@@ -14,7 +14,7 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # RAYS=40960
 # RAYS=32768
 # RAYS=16384
-RAYS=12288
+RAYS=10288
 # RAYS=6384
 
 # export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512'
@@ -38,7 +38,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
     --pipeline.datamanager.sample-mask-ground-percentage 1.0 \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
 	--pipeline.model.sampler.surface-sampling False \
-	--pipeline.model.sampler.samples-per-ray 10 \
+	--pipeline.model.sampler.samples-per-ray 8 \
 	--pipeline.model.sampler.ground_removal_mode "none" \
 	--pipeline.model.sampler.ground-points-count 5000000 \
 	--pipeline.model.sampler.ground-tolerance 0.008 \

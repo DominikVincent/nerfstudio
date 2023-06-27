@@ -678,8 +678,8 @@ class NeuralSemanticFieldModel(Model):
                 metrics_dict["gt_analytic_dot"] = torch.sum(normals_all_gt * normals_all_analytic, dim=-1).mean(dim=-1)
                 metrics_dict["gt_analytic_dot_" + str(batch["model_idx"])] = metrics_dict["gt_analytic_dot"]
                 
-                metrics_dict["pred_analytic_dot"] = torch.sum(normals_all_pred * normals_all_analytic, dim=-1).mean(dim=-1)
-                metrics_dict["pred_analytic_dot_" + str(batch["model_idx"])] = metrics_dict["pred_analytic_dot"]
+                metrics_dict["gt_pred_dot"] = torch.sum(normals_all_pred * normals_all_analytic, dim=-1).mean(dim=-1)
+                metrics_dict["gt_pred_dot_" + str(batch["model_idx"])] = metrics_dict["gt_pred_dot"]
             
         return metrics_dict
 
@@ -898,19 +898,19 @@ class NeuralSemanticFieldModel(Model):
             
             if "normals_all_pred" in outputs and "normals_all_gt" in outputs:
                 normals_pred = outputs["normals_all_pred"][outputs["density_mask"].squeeze()]
-                normals_gt = outputs["normals_all_gt"][outputs["density_mask"].squeeze()]
-                metrics_dict["analytic_pred_dot"] = torch.sum(normals_gt * normals_pred, dim=-1).mean(dim=-1)
+                normals_analytic = outputs["normals_all_gt"][outputs["density_mask"].squeeze()]
+                metrics_dict["analytic_pred_dot"] = torch.sum(normals_analytic * normals_pred, dim=-1).mean(dim=-1)
             
             if "normal_image" in batch:
                 images_dict["normals_gt"] = batch["normal_image"]
                 density_mask = outputs["density_mask"].squeeze()
-                normals_all_pred = outputs["normals_all_pred"][density_mask]
+                normals_all_pred =outputs["normals_all_pred"][density_mask]
                 normals_all_analytic = outputs["normals_all_gt"][density_mask]
                 normals_all_gt = batch["normal_image"][density_mask]
                 
                 metrics_dict["gt_analytic_dot"] = torch.sum(normals_all_gt * normals_all_analytic, dim=-1).mean(dim=-1)
                 
-                metrics_dict["pred_analytic_dot"] = torch.sum(normals_all_gt * normals_all_pred, dim=-1).mean(dim=-1)
+                metrics_dict["gt_pred_dot"] = torch.sum(normals_all_gt * normals_all_pred, dim=-1).mean(dim=-1)
 
             
             normal_images = [images_dict[key] for key in ["normals_all_pred", "normals_all_gt"] if key in images_dict]
