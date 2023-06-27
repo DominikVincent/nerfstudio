@@ -315,18 +315,13 @@ class NesfPipeline(Pipeline):
                     if log_to_wandb:
                         writer.put_dict("test_image"+wandb_suffix, metrics_dict, step=step)
                         
-                    
+                    if log_to_wandb:
+                        for k, img in image_dict.items():
+                            writer.put_image("test_image_"+k+wandb_suffix, img, step=step)
+
                     if "img" in image_dict:
                         img = image_dict["img"]
-                        if log_to_wandb:
-                            writer.put_image("test_image"+wandb_suffix, img, step=step)
 
-                            if "entropy" in image_dict:
-                                writer.put_image("entropy"+wandb_suffix, image_dict["entropy"], step=step)
-                            
-                            if "sample_mask" in image_dict:
-                                writer.put_image("sample_mask"+wandb_suffix, image_dict["sample_mask"], step=step)
-                                
                         img = img.cpu().numpy()
                         if save_path is not None:
                             file_path = save_path / f"{model_idx:03d}{wandb_suffix}" / f"{batch['image_idx']:04d}.png"
