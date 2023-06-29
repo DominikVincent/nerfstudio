@@ -111,7 +111,7 @@
       "args": "tensorboard",
       "console": "integratedTerminal",
       "env": {
-        // "CUDA_LAUNCH_BLOCKING": "1",
+        "CUDA_LAUNCH_BLOCKING": "1",
         "CUDA_VISIBLE_DEVICES": "0",
         // "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb=1024"
       },

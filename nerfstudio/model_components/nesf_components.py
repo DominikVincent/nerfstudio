@@ -51,7 +51,7 @@ class SceneSamplerConfig(InstantiateConfig):
     """What is the minimum z value a point has to have"""
     xy_distance_threshold: float = 0.7
     """The maximal distance a point can have to z axis to be considered"""
-    max_points: int = 2 << 17
+    max_points: int = 12000
     """The maximum number of points to use in one scene. If more are available after filtering, they will be randomly sampled"""
     get_normals: bool = False
     ground_removal_mode: Literal["ransac", "min", "none"] = "none"
@@ -631,10 +631,10 @@ class FeatureGeneratorTorch(nn.Module):
             ).to(transform_batch["points_xyz"].device)
 
         else:
-            rot_matrix = torch.eye(3, device=device)
+            rot_matrix = torch.eye(3, device=device).unsqueeze(0)
         
         time4 = time.time()
-        
+        transform_batch["rot_mat"] = rot_matrix
         positions = transform_batch["points_xyz"]
 
         if self.config.rot_augmentation:

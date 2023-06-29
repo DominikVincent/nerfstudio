@@ -51,6 +51,8 @@ def rewrite_config(config_path: Path, name: str, data_config_path: Union[str, No
     # remove the pretraining from the model config
     config.pipeline.model.pretrain = False
     config.pipeline.model.mode = "semantics"
+    config.pipeline.model.proximity_loss = True
+    config.pipeline.model.sampler.surface_sampling = True
     
     if args.only_last_layer:
         config.pipeline.model.only_last_layer = True

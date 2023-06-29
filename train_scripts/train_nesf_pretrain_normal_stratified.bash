@@ -74,5 +74,6 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.masker_config.mode "patch" \
 	--pipeline.model.masker_config.num-patches 100 \
 	--pipeline.model.rgb-prediction "integration" \
+	--wandb-project-name "klevr-results" \
 	nesf-data \
 	--data-config $DATA_CONFIG 
