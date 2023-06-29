@@ -30,15 +30,16 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
 	--pipeline.model.sampler.surface-sampling True \
 	--pipeline.model.sampler.samples-per-ray 24 \
+	--pipeline.model.sampler.get-normals True \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500000 \
 	--pipeline.model.sampler.ground-tolerance 0.008 \
 	--pipeline.model.sampler.surface-threshold 0.2 \
 	--pipeline.model.batching-mode "sliced" \
 	--pipeline.model.batch_size 2048 \
-	--pipeline.model.mode semantics \
-	--pipeline.model.proximity-loss True \
-	--pipeline.model.pretrain False  \
+	--pipeline.model.mode normals \
+	--pipeline.model.proximity-loss False \
+	--pipeline.model.pretrain True  \
 	--pipeline.model.feature-generator-config.use-rgb True \
 	--pipeline.model.feature-generator-config.use-dir-encoding True \
 	--pipeline.model.feature-generator-config.use-pos-encoding True \

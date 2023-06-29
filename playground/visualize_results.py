@@ -1,8 +1,9 @@
 import plotly.graph_objs as go
 import os
 from collections import defaultdict
+import plotly
 
-
+# title = "KLEVR mIoU of best Models"
 # run_values = {
 #     "Pointnet++": {"value": 0.752, "group": "group_1"},
 #     "Custom": {"value": 0.835, "group": "group_1"},
@@ -12,6 +13,7 @@ from collections import defaultdict
 # }
 
 # Proximity Loss
+# title = "KLEVR Impact of Proximity Loss on mIoU"
 # run_values = {
 #     "Pointnet++": {"value": 0.752, "group": "proximity loss"},
 #     "Pointnet++ ": {"value": 0.655, "group": "no proximity loss"},
@@ -22,18 +24,46 @@ from collections import defaultdict
 # }
 
 # ground removal
+# title = "KLEVR Impact of Ground Removal on mIoU"
+# run_values = {
+#     "Pointnet++": {"value": 0.752, "group": "ground removal"},
+#     "Pointnet++ ": {"value": 0.42, "group": "no ground removal"},
+#     "Stratified": {"value": 0.887, "group": "ground removal"},
+#     "Stratified ": {"value": 0.813, "group": "no ground removal"},
+# }
+
+# Klevr pretrain
+title="KLEVR Impact of Pretraining on mIoU"
 run_values = {
-    "Pointnet++": {"value": 0.752, "group": "ground removal"},
-    "Pointnet++ ": {"value": 0.42, "group": "no ground removal"},
-    "Stratified": {"value": 0.887, "group": "ground removal"},
-    "Stratified ": {"value": 0.813, "group": "no ground removal"},
-}
+    "Custom*": {"value": 0.8826, "group": "10 scenes, all views"},
+    "pretrained Custom*": {"value": 0.8826, "group": "10 scenes, all views"}, # yes really the same
+    "Custom**": {"value": 0.3789, "group": "3 scenes, all views"},
+    "Pretrained Custom**": {"value": 0.8826, "group": "3 scenes, all views"}, 
+    "Custom***": {"value": 0.333, "group": "3 scenes, 5 views"},
+    "Pretrained Custom***": {"value": 0.332, "group": "3 scenes, 5 views"}, 
+}   
+
+# Toybox-5
+# run_values = {
+#     "NeSF": {"value": 0.817, "group": "*"},
+#     "Stratified_best": {"value": 0.810, "group": "*"},
+#     "Stratified_100_270_pretrain_rgb_patch-0.5-100": {"value": 0.6438, "group": "*"},
+#     "Stratified_100_270_pretrain_rgb_patch-0.5-400": {"value": 0.7289, "group": "*"},
+#     "Stratified_100_270_pretrain_rgb-random-0.75": {"value": 0.7303, "group": "*"},
+#     "Stratified_100_270_pretrain_rgb-random-0.5": {"value": 0.7264, "group": "*"},
+#     "Stratified_100_270": {"value": 0.7484, "group": "*"},
+#     "Stratified_100_270_s3dis": {"value": 0.7742, "group": "*"},
+#     "Stratified_100_10_pretrain_rgb_patch-0.5-100": {"value": 0.602, "group": "*"},
+#     "Stratified_100_10_pretrain_rgb_random_0.5": {"value": 0.638, "group": "*"},
+#     "Stratified_100_10_pretrain_rgb_patch_0.5-400": {"value": 0.6412, "group": "*"},
+#     "Stratified_100_10_pretrain_normals": {"value": 0.642, "group": "*"},
+#     "Stratified_100_10_pretrain_rgb_random_0.75": {"value": 0.6815, "group": "*"},
+#     "Stratified_100_10": {"value": 0.7526, "group": "*"},
+#     "Stratified_100_10_s3dis": {"value": 0.7458, "group": "*"},
+# }
 
 show_legend = not all(run_data["group"] == next(iter(run_values.values()))["group"] for run_data in run_values.values())
 
-# title = "mIoU of best Models"
-# title = "Impact of Proximity Loss on mIoU"
-title = "Impact of Ground Removal on mIoU"
 
 y_axis_label = "mIoU"
 x_axis_label = "Models"
@@ -41,11 +71,12 @@ x_axis_label = "Models"
 group_data = {group: {"x": [], "y": []} for group in set(run_data["group"] for run_data in run_values.values())}
 
 for run_name, run_data in run_values.items():
-    group_data[run_data["group"]]["x"].append(run_name)
+    group_data[run_data["group"]]["x"].append(run_name.replace("*", ""))
     group_data[run_data["group"]]["y"].append(run_data["value"])
 
 data = []
-colors = ["blue", "red", "green", "orange", "purple", "yellow"]
+# colors = ["blue", "red", "green", "orange", "purple", "yellow"]
+colors = plotly.colors.qualitative.Plotly
 for i, (group, values) in enumerate(group_data.items()):
     text = ["{:.3f}".format(y) for y in values["y"]]
 
