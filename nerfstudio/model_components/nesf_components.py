@@ -671,7 +671,7 @@ class FeatureGeneratorTorch(nn.Module):
             if self.config.rot_augmentation:
                 # TODO consider turning that off if not self.training()
                 normals = torch.matmul(normals, rot_matrix)
-            transform_batch["normals_unnormalized"] = normals
+            transform_batch["normals"] = normals
             if self.config.use_normal_encoding:
                 normals = get_normalized_directions(normals)
                 transform_batch["normals_encoded"] = normals
@@ -705,8 +705,8 @@ class FeatureGeneratorTorch(nn.Module):
             
         # positions_normalized = (positions_normalized - mean) / dist
         if self.config.visualize_point_batch:
-            if "normals_unnormalized" in transform_batch:
-                visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals_unnormalized"])
+            if "normals" in transform_batch:
+                visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals"])
                 # visualize_point_batch(transform_batch["points_xyz"])
                 
             else:

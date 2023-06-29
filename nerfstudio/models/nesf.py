@@ -570,23 +570,24 @@ class NeuralSemanticFieldModel(Model):
             field_outputs = torch.nn.functional.normalize(field_outputs_dict["normals"], dim=-1)
             
             outputs["normals_pred"] = field_outputs
-            outputs["normals_gt"] = field_outputs_raw[FieldHeadNames.PRED_NORMALS] if FieldHeadNames.PRED_NORMALS in field_outputs_raw else field_outputs_raw[FieldHeadNames.NORMALS] 
+            outputs["normals_gt"] = transform_batch["normals"]
             
             # for visualization
             normals_all = torch.empty((*density_mask.shape, 3), device=self.device)
+            normals_gt = torch.empty((*density_mask.shape, 3), device=self.device)
             weights_all = torch.zeros((*density_mask.shape, 1), device=self.device)  # 64, 48, 6
 
             normals_all[density_mask] = field_outputs
+            normals_gt[density_mask] = transform_batch["normals"]
             weights_all[density_mask] = weights
 
             normals_all[~density_mask] = torch.nn.functional.normalize(torch.nn.functional.tanh(self.learned_low_density_value_normals), dim=-1)
+            normals_gt[~density_mask] = torch.zeros((3), device=normals_gt.device)
             weights_all[~density_mask] = 0.00001
             
-            
-            original_normals = original_fields_outputs[FieldHeadNames.PRED_NORMALS] if FieldHeadNames.PRED_NORMALS in original_fields_outputs else original_fields_outputs[FieldHeadNames.NORMALS]
             time14 = time.time()
             outputs["normals_all_pred"] = torch.nn.functional.normalize(self.renderer_normals(normals_all, weights=weights_all), dim=-1)
-            outputs["normals_all_gt"] = torch.nn.functional.normalize(self.renderer_normals(original_normals, weights=weights_all), dim=-1)
+            outputs["normals_all_gt"] = torch.nn.functional.normalize(self.renderer_normals(normals_gt, weights=weights_all), dim=-1)
             time15 = time.time()
             CONSOLE.print("Forward - data post processing time: ", time15 - time14)
             CONSOLE.print("Forward - render: ", time14 - time13)

@@ -66,6 +66,7 @@ def rewrite_config(config_path: Path, name: str, data_config_path: Union[str, No
     
     out_path = config_path.parent / "auto_semantic_config.yml"
     out_path.write_text(yaml.dump(config), "utf8")
+    time.sleep(2)
 
 
 @dataclass

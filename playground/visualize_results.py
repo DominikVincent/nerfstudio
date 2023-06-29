@@ -36,11 +36,11 @@ import plotly
 title="KLEVR Impact of Pretraining on mIoU"
 run_values = {
     "Custom*": {"value": 0.8826, "group": "10 scenes, all views"},
-    "pretrained Custom*": {"value": 0.8826, "group": "10 scenes, all views"}, # yes really the same
+    "pretrained  Custom*": {"value": 0.8826, "group": "10 scenes, all views"}, # yes really the same
     "Custom**": {"value": 0.3789, "group": "3 scenes, all views"},
-    "Pretrained Custom**": {"value": 0.8826, "group": "3 scenes, all views"}, 
+    "Pretrained rgb 0.75 Custom**": {"value": 0.8826, "group": "3 scenes, all views"}, 
     "Custom***": {"value": 0.333, "group": "3 scenes, 5 views"},
-    "Pretrained Custom***": {"value": 0.332, "group": "3 scenes, 5 views"}, 
+    "Pretrained rgb 0.75 Custom***": {"value": 0.332, "group": "3 scenes, 5 views"}, 
 }   
 
 # Toybox-5
