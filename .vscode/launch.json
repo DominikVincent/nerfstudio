@@ -145,9 +145,9 @@
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/eval.py",
       "args": [
         "--load-config", 
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-06-02_230853/auto_eval_config.yml", 
+        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-06-29_150157/auto_eval_config.yml", 
         "--output-path", 
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-05-17_182018/auto_eval.json", 
+        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-06-29_150157/auto_eval.json", 
         "--use-wandb", 
         "--name", 
         "test_3dmiou", 

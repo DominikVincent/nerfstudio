@@ -51,7 +51,7 @@ class SceneSamplerConfig(InstantiateConfig):
     """What is the minimum z value a point has to have"""
     xy_distance_threshold: float = 0.7
     """The maximal distance a point can have to z axis to be considered"""
-    max_points: int = 12000
+    max_points: int = 80000
     """The maximum number of points to use in one scene. If more are available after filtering, they will be randomly sampled"""
     get_normals: bool = False
     ground_removal_mode: Literal["ransac", "min", "none"] = "none"
@@ -284,6 +284,7 @@ class SceneSampler:
 
         # If there are more than k true values, randomly select which ones to keep
         if num_true > self.config.max_points:
+            CONSOLE.print(f"[yellow]Limiting number of points from {num_true} to {self.config.max_points}")
             true_indices = torch.nonzero(mask, as_tuple=True)
             num_true_values = true_indices[0].size(0)
 
@@ -329,7 +330,7 @@ class MaskerConfig(InstantiateConfig):
     mask_ratio: float = 0.75
     """The number of points which should be masked approximatly"""
     
-    mode: Literal["random", "patch"] = "random"
+    mode: Literal["random", "patch", "patch_fp"] = "random"
     """The mode of masking to use"""
     
     pos_encoder: Literal["sin", "rff"] = "sin"
@@ -337,6 +338,8 @@ class MaskerConfig(InstantiateConfig):
     
     num_patches: int = 25
     """How many centroids should be used for the patch mode. Patches will evolve around centroids"""
+
+    visualize_masking: bool = False
 
 class Masker(nn.Module):
     def __init__(self, config: MaskerConfig, output_size: int):
@@ -368,7 +371,7 @@ class Masker(nn.Module):
         
         if self.config.mode == "random":
             ids_keep, ids_mask, ids_restore =  self.random_mask(x, batch)
-        elif self.config.mode == "patch":
+        elif self.config.mode == "patch" or self.config.mode == "patch_fp":
             ids_keep, ids_mask, ids_restore =  self.patch_mask(x, batch)
         else: 
             raise ValueError(f"Unknown masking mode {self.config.mode}")
@@ -389,9 +392,12 @@ class Masker(nn.Module):
         # unshuffle to get the binary mask
         mask = torch.gather(mask, dim=1, index=ids_restore)
         x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
-        
-        
-        # visualize_point_batch(batch["points_xyz"])
+
+        if self.config.visualize_masking:
+            points_stack = torch.cat([batch["points_xyz"], batch["points_xyz_masked"]], dim=1)
+            labels = torch.cat([torch.ones((N, len_keep)), torch.zeros((N, L - len_keep))], dim=1).long()
+            visualize_point_batch(points_stack, classes=labels)
+            input("Press Enter to continue...")
         return x_masked, mask, ids_restore, batch
     
     def unmask(self, x: torch.Tensor, batch: dict, ids_restore: torch.Tensor):
@@ -448,7 +454,15 @@ class Masker(nn.Module):
         points = batch["points_xyz"]
 
         # select k points per batch randomly
-        centroids = points[:, torch.randperm(points.shape[1])[:self.config.num_patches]]
+        if self.config.mode == "patch":
+            centroids = points[:, torch.randperm(points.shape[1])[:self.config.num_patches]]
+        elif self.config.mode == "patch_fp":
+            start_time = time.time()
+            centroids = self.furthest_point_sampling(points, self.config.num_patches)
+            print(f"FPS took {time.time() - start_time}")
+        else:
+            raise ValueError(f"Unknown masking mode {self.config.mode}")
+        # visualize_point_batch(centroids)
 
         # compute pairwise distances between points and centroids
         distances = torch.cdist(points, centroids)
@@ -457,15 +471,28 @@ class Masker(nn.Module):
 
         len_keep = int(L * (1 - ratio))
         ids_restore = torch.argsort(indices, dim=1)
-        # indices_keep = indices[:, :len_keep]
-        # indices_mask = indices[:, len_keep:]
-
-        # we want to mask out the points which are close to the centroids
-        indices_mask = indices[:, :len_keep]
-        indices_keep = indices[:, len_keep:]
-
+        indices_keep = indices[:, :len_keep]
+        indices_mask = indices[:, len_keep:]
 
         return indices_keep, indices_mask, ids_restore
+
+    def furthest_point_sampling(self, points, K):
+        B, N, _ = points.shape
+        
+        centroids = torch.zeros(B, K, 3, device=points.device)
+        distance = torch.ones(B, N, device=points.device) * 1e10
+        farthest = torch.randint(0, N, (B,), device=points.device)
+        
+        batch_indices = torch.arange(B, device=points.device)
+        for i in range(K):
+            centroids[:, i] = points[batch_indices, farthest]
+            centroid = centroids[:, i].unsqueeze(1)
+            dist = torch.sum((points - centroid) ** 2, -1)
+            mask = dist < distance
+            distance[mask] = dist[mask]
+            farthest = torch.max(distance, -1)[1]
+            
+        return centroids
 
 @dataclass
 class FeatureGeneratorTorchConfig(InstantiateConfig):
@@ -976,9 +1003,9 @@ class StratifiedTransformerWrapper(nn.Module):
             CONSOLE.print("Loaded feature transformer from pretrained checkpoint")
             CONSOLE.print("Feature Transformer missing keys", missing_keys)
             CONSOLE.print("Feature Transformer unexpected keys", unexpected_keys)
+
                 
     def forward(self, x: torch.Tensor, batch: dict):
-
         def batch_for_stratified_point_transformer(points, features):
             batch_size = points.shape[0]
             seq_len = points.shape[1]

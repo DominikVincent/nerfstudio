@@ -22,6 +22,9 @@ parser.add_argument("--partition", help="Which slurm partition to use", type=str
 parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/toybox-5-nesf")
 parser.add_argument("--data", help="Path to a data config if not the default should be used.", type=str)
 parser.add_argument("--only_last_layer", help="Set if only last layer should be trained", action="store_true")
+parser.add_argument("--rays", help="If a different amount of rays is supposed to be used", type=int, default=None)
+parser.add_argument("--ground_removal", help="If ground removal should be activated", type=bool, default=True)
+
 parser.add_argument("--scratch", help="Train from scratch", action="store_true", default=False)
 parser.add_argument("runs", nargs="+", help="The names of the wandb runs to evaluate", type=str)
 
@@ -53,10 +56,23 @@ def rewrite_config(config_path: Path, name: str, data_config_path: Union[str, No
     config.pipeline.model.mode = "semantics"
     config.pipeline.model.proximity_loss = True
     config.pipeline.model.sampler.surface_sampling = True
+    config.pipeline.model.sampler.samples_per_ray = 24
+
+
     
     if args.only_last_layer:
         config.pipeline.model.only_last_layer = True
     
+    if args.rays is not None:
+        config.pipeline.datamanager.train_num_rays_per_batch = args.rays
+        config.pipeline.datamanager.eval_num_rays_per_batch = args.rays
+        config.pipeline.model.eval_num_rays_per_chunk = args.rays
+    
+    if args.ground_removal:
+        config.pipeline.model.sampler.ground_removal_mode = "ransac"
+        config.pipeline.model.sampler.ground_points_count = 5000000000
+        config.pipeline.model.sampler.ground_tolerance = 0.008
+
     # update the data path if provided
     if data_config_path is not None and data_config_path != "":
         config.pipeline.datamanager.dataparser.data_config = Path(data_config_path)
@@ -121,7 +137,7 @@ conda activate nerfstudio2
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p {partition} --exclude=fennel --mem=40G --gres=gpu:1 -t 96:60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p {partition} --exclude=fennel,chili,sumac --mem=40G --gres=gpu:1 -t 96:60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output

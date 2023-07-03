@@ -43,7 +43,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.batching-mode "off" \
 	--pipeline.model.batch_size 16384 \
 	--pipeline.model.mode semantics \
-	--pipeline.model.proximity-loss True \
+	--pipeline.model.proximity-loss False \
 	--pipeline.model.feature-generator-config.jitter 0.000 \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \

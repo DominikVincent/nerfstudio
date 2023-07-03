@@ -12,9 +12,9 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/kleve
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
 
 # RAYS=131072
-# RAYS=65536
+RAYS=65536
 # RAYS=40960
-RAYS=32768
+# RAYS=32768
 # RAYS=16384
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
@@ -40,10 +40,10 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.sampler.ground-points-count 500000 \
 	--pipeline.model.sampler.ground-tolerance 0.008 \
 	--pipeline.model.sampler.surface-threshold 0.5 \
-	--pipeline.model.sampler.max-points 6000 \
+	--pipeline.model.sampler.max-points 18000 \
 	--pipeline.model.batching-mode "off" \
 	--pipeline.model.batch_size 16384 \
-	--pipeline.model.mode normals,rgb \
+	--pipeline.model.mode rgb \
 	--pipeline.model.proximity-loss False \
 	--pipeline.model.feature-generator-config.jitter 0.000 \
 	--pipeline.model.pretrain True  \
@@ -62,8 +62,15 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-stratified-config.quant_size 0.0001 \
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
 	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
+	--pipeline.model.feature_decoder_model "custom" \
+	--pipeline.model.feature-decoder-stratified-config.grid_size 0.005 \
+	--pipeline.model.feature-decoder-stratified-config.quant_size 0.0001 \
+	--pipeline.model.feature-decoder-stratified-config.window_size 4 \
+	--pipeline.model.feature-decoder-stratified-config.load_dir "" \
+	--pipeline.model.feature-decoder-stratified-config.num-layers 3 \
+	--pipeline.model.feature-decoder-stratified-config.depths 2 2 4 \
 	--pipeline.model.masker_config.mask_ratio 0.5 \
-	--pipeline.model.masker_config.mode "patch" \
+	--pipeline.model.masker_config.mode "patch_fp" \
 	--pipeline.model.masker_config.num-patches 400 \
 	--pipeline.model.rgb-prediction "integration" \
 	--wandb-project-name "klevr-results" \

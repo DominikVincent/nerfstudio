@@ -28,7 +28,7 @@ parser.add_argument(
     type=str,
     default="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_normal_nesf_test_20.json",
 )
-parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/mae-models-project")
+parser.add_argument("--proj_name", help="The wandb proj name", type=str, default="dhollidt/toybox-5-nesf")
 
 subparsers = parser.add_subparsers(dest="command")
 
@@ -74,7 +74,8 @@ def sweep_run_to_path(run):
 
 
 def ns_eval(config_path, output_path, name, use_slurm=False, partition="QRTX5000"):
-    command = f"ns-eval --load-config {config_path} --output-path {output_path} --use-wandb --name '{name}'"
+    global args
+    command = f"ns-eval --load-config {config_path} --output-path {output_path} --use-wandb --name '{name}' --wandb_name {args.proj_name} --eval_config {args.eval_config}"
 
     if use_slurm:
         # save command in bash script as file
@@ -94,7 +95,7 @@ conda activate nerfstudio2
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p {partition} --exclude=fennel --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p {partition} --exclude=fennel,chili,sumac --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output
