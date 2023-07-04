@@ -75,7 +75,7 @@ def sweep_run_to_path(run):
 
 def ns_eval(config_path, output_path, name, use_slurm=False, partition="QRTX5000"):
     global args
-    command = f"ns-eval --load-config {config_path} --output-path {output_path} --use-wandb --name '{name}' --wandb_name {args.proj_name} --eval_config {args.eval_config}"
+    command = f"ns-eval --load-config {config_path} --output-path {output_path} --use-wandb --name '{name}' --wandb_name {args.proj_name}"
 
     if use_slurm:
         # save command in bash script as file

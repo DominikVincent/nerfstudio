@@ -7,7 +7,7 @@ conda activate nerfstudio2
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json"
 DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
 
-RAYS=131072
+RAYS=8192
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
 	--vis wandb \
@@ -23,20 +23,23 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.train-num-rays-per-batch $RAYS \
 	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
-	--pipeline.model.sampler.surface-sampling True \
-	--pipeline.model.sampler.samples-per-ray 24 \
+	--pipeline.model.sampler.surface-sampling False \
+	--pipeline.model.sampler.samples-per-ray 8 \
+	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500000 \
 	--pipeline.model.sampler.ground-tolerance 0.008 \
 	--pipeline.model.sampler.surface-threshold 0.2 \
 	--pipeline.model.batching-mode "off" \
-	--pipeline.model.batch_size 10000 \
+	--pipeline.model.batch_size 16384 \
 	--pipeline.model.mode semantics \
 	--pipeline.model.proximity-loss False \
+	--pipeline.model.feature-generator-config.jitter 0.000 \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
-	--pipeline.model.feature-generator-config.use-dir-encoding False \
+	--pipeline.model.feature-generator-config.use-dir-encoding True \
 	--pipeline.model.feature-generator-config.use-pos-encoding True \
+	--pipeline.model.feature-generator-config.use-normal-encoding False \
 	--pipeline.model.feature-generator-config.pos-encoder "sin" \
 	--pipeline.model.feature-generator-config.use-density True \
 	--pipeline.model.feature-generator-config.out-rgb-dim 16 \
