@@ -843,6 +843,9 @@ class TransformerEncoderModel(torch.nn.Module):
 
 
     def forward(self, x, batch: dict):
+        """
+        Args: X: {batch_size, seq_len, input_size}
+        """
 
         src_key_padding_mask = batch.get("src_key_padding_mask", None)
 
@@ -1045,5 +1048,76 @@ class StratifiedTransformerWrapper(nn.Module):
 
     def get_out_dim(self) -> int:
         return self.config.channels[0]
+    
 
 
+@dataclass
+class FieldTransformerConfig(InstantiateConfig):
+    _target: Type = field(default_factory=lambda: FieldTransformer)
+
+    transformer: TranformerEncoderModelConfig = TranformerEncoderModelConfig(
+        num_layers = 2,
+        num_heads= 2,
+    )
+
+    knn: int = 64
+
+class FieldTransformer(nn.Module):
+    def __init__(self, config: FieldTransformerConfig, input_size: int, activation: Union[Callable, None] = None):
+        super().__init__()
+        self.config = config
+        self.activation = activation
+        
+        self.transformer = self.config.transformer.setup(input_size=input_size+3)
+        self.head = nn.Linear(self.transformer.get_out_dim(), input_size)
+
+        self.learnable_query_vector = nn.Parameter(torch.randn(input_size + 3))
+
+    def forward(self, query_pos: torch.Tensor, neural_feat: torch.Tensor, neural_pos: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            query_pos: [N', 3]
+            neural_feat: [N, C]
+            neural_pos: [N, 3]
+        
+        Returns:
+            [N', C] tensor
+        """
+
+        assert neural_feat.shape[0] == neural_pos.shape[0], "neural_feat and neural_pos must have the same count of points"
+
+        closest_ind = self.get_k_closest_points(query_pos, neural_pos)  # shape: [N', k]
+
+        # Get the features of the k closest points
+        closest_feat = neural_feat[closest_ind]  # shape: [N', k, C]
+        closets_points = neural_pos[closest_ind]  # shape: [N', k, 3]
+
+        # compute the relative positions of the query points to the k closest points
+        rel_pos =  closets_points - query_pos.unsqueeze(1) # shape: [N', k, 3]
+
+        # concatenate the relative positions and the features of the k closest points
+        rel_pos_feat = torch.cat([rel_pos, closest_feat], dim=-1)  # shape: [N', k, 3 + C]
+
+        # prepend the learnable query vector
+        rel_pos_feat = torch.cat([rel_pos_feat, self.learnable_query_vector.unsqueeze(0).expand(rel_pos_feat.shape[0], -1, -1)], dim=1)  # shape: [N', k + 1, 3 + C]
+        # apply the transformer
+        rel_pos_feat = self.transformer(rel_pos_feat, batch={})  # shape: [N', k + 1, C]
+        # get the features of the query points
+        retrieved_feat = rel_pos_feat[:, 0, :]  # shape: [N', C]
+
+        retrieved_feat = self.head(retrieved_feat)  # shape: [N', OUT_DIM]
+
+        return retrieved_feat
+
+
+    def get_k_closest_points(self, query_pos, neural_pos):
+        # Gets the k closests points for each quesry point
+        # Compute Euclidean distance between each pair of points
+        dists = torch.cdist(query_pos, neural_pos)  # shape: [N', N]
+
+        # Find the indices of the k closest points
+        _, indices = torch.topk(dists, self.config.knn, largest=False, sorted=True)  # shape: [N', k]
+
+        # dummy data
+        # indices = torch.zeros(query_pos.shape[0], self.config.knn, dtype=torch.int64, device=query_pos.device)
+        return indices

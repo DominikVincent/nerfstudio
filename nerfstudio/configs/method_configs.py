@@ -409,6 +409,11 @@ method_configs["nesf"] = TrainerConfig(
             "scheduler": SchedulerConfig(lr_final=LR_END, max_steps=END_DECAY),
             # "scheduler": None,
         },
+        "field_transformer": {
+            "optimizer": AdamOptimizerConfig(lr=4E-5, eps=1e-13),
+            "scheduler": SchedulerConfig(lr_final=1E-6, max_steps=END_DECAY),
+            # "scheduler": None,
+        },
     },
     viewer=ViewerConfig(num_rays_per_chunk=64, websocket_port=7017, quit_on_train_completion=False),
     save_only_latest_checkpoint=True,

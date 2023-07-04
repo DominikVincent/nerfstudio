@@ -74,6 +74,12 @@ class NeuralSemanticFieldConfig(ModelConfig):
     feature_decoder_stratified_config: StratifiedTransformerWrapperConfig = StratifiedTransformerWrapperConfig()
     """If pretraining is used, what should the encoder look like"""
 
+    use_field_transformer: bool = False
+    field_transformer_sampler: SceneSamplerConfig = SceneSamplerConfig()
+    """Sampling the neural field does not require the same sampling strategy as the feature transformer. Hence we can use a different sampler for the field transformer."""
+    field_transformer_config: FieldTransformerConfig = FieldTransformerConfig()
+    """Whether to use a field transformer or not. If yes, what should it look like. It allows to get a true field to field mapping."""
+
     masker_config: MaskerConfig = MaskerConfig()
     """If pretraining is used the masker will be used mask poi"""
 
@@ -161,6 +167,7 @@ class NeuralSemanticFieldModel(Model):
         self.confusion_non_normalized = ConfusionMatrix(task="multiclass", num_classes=len(self.semantics.classes), normalize="none")
 
         self.scene_sampler: SceneSampler = self.config.sampler.setup()
+        self.field_transformer_sampler: SceneSampler = self.config.field_transformer_sampler.setup()
 
         # Feature extractor
         self.feature_model: FeatureGeneratorTorch = self.config.feature_generator_config.setup(aabb=self.scene_box.aabb)
@@ -250,6 +257,9 @@ class NeuralSemanticFieldModel(Model):
         self.learned_low_density_value_density = torch.nn.Parameter(torch.randn(1) * 0.1 + 0.8, requires_grad=True)
 
 
+        if self.config.use_field_transformer:
+            self.field_transformer = self.config.field_transformer_config.setup(input_size=self.feature_transformer.get_out_dim())
+
         # Renderer
         head_params = {}
         if "rgb" in self.config.mode:
@@ -280,6 +290,7 @@ class NeuralSemanticFieldModel(Model):
                 "feature_transformer_parameters": sum(p.numel() for p in self.feature_transformer.parameters()),
                 "decoder_parameters": sum(p.numel() for p in self.decoder.parameters()),
                 **head_params,
+                "field_transformer_parameters": sum(p.numel() for p in self.field_transformer.parameters()) if self.config.use_field_transformer else 0,
 
                 "total_parameters": total_params,
             },
@@ -350,6 +361,7 @@ class NeuralSemanticFieldModel(Model):
             "decoder": decoder_params,
             "decoder_transformer": decoder_transformer_params,
             "head": head_parameters,
+            "field_transformer": list(self.field_transformer.parameters()) if self.config.use_field_transformer else [],
         }
 
         # filter the empty ones
@@ -456,24 +468,50 @@ class NeuralSemanticFieldModel(Model):
         else:
             # print("outs: ", outs.shape)
             field_encodings = self.feature_transformer(outs, batch=transform_batch)
-            time5 = time.time()
-            field_encodings = self.decoder(field_encodings)
             time6 = time.time()
+
+            if self.config.use_field_transformer:
+                assert self.config.pretrain is False
+                assert self.config.batching_mode == "off"
+                (
+                    ray_samples,
+                    weights,
+                    field_outputs_raw,
+                    density_mask,
+                    original_fields_outputs,
+                ) = self.field_transformer_sampler.sample_scene(ray_bundle, model, batch["model_idx"])
+                all_samples_count = density_mask.shape[0]*density_mask.shape[1]
+                CONSOLE.print("Field Transformer Ray samples used", weights.shape[0], "out of", all_samples_count, "samples")
+
+                query_points = ray_samples.frustums.get_positions()
+                query_points = query_points.reshape(-1, 3)
+                query_points = torch.matmul(query_points, transform_batch["rot_mat"]).squeeze(0)
+                # visualize_point_batch(query_points)
+                # visualize_point_batch(transform_batch["points_xyz"])
+                field_encodings = self.field_transformer(query_points, field_encodings.squeeze(0), transform_batch["points_xyz"].squeeze(0))
+                field_encodings = field_encodings.unsqueeze(0)
+
             field_outputs_dict["semantics"] = self.head_semantics(field_encodings)
             time7 = time.time()
             
             if self.config.proximity_loss:
-                transform_batch["points_xyz"] = transform_batch["points_xyz"] + torch.randn_like(transform_batch["points_xyz"]) * 0.003
-                outs_noise, transform_batch_noise = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
-                field_encodings_noise = self.feature_transformer(outs_noise, batch=transform_batch_noise)
-                field_encodings_noise = self.decoder(field_encodings_noise)
-                field_outputs_noise = self.head_semantics(field_encodings_noise)
-                outputs["pointcloud_pred_noise"] = field_outputs_noise
-                outputs["pointcloud_pred"] = field_outputs_dict["semantics"] 
+                if self.config.use_field_transformer:
+                    query_points_noise = query_points + torch.randn_like(query_points) * 0.003
+                    field_encodings_noise = self.field_transformer(query_points_noise, field_encodings.squeeze(0), transform_batch["points_xyz"].squeeze(0))
+                    field_encodings_noise = field_encodings_noise.unsqueeze(0)
+                    outputs["pointcloud_pred_noise"] = field_encodings_noise
+                    outputs["pointcloud_pred"] = field_encodings
+                else:
+                    transform_batch["points_xyz"] = transform_batch["points_xyz"] + torch.randn_like(transform_batch["points_xyz"]) * 0.003
+                    outs_noise, transform_batch_noise = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
+                    field_encodings_noise = self.feature_transformer(outs_noise, batch=transform_batch_noise)
+                    field_encodings_noise = self.decoder(field_encodings_noise)
+                    field_outputs_noise = self.head_semantics(field_encodings_noise)
+                    outputs["pointcloud_pred_noise"] = field_outputs_noise
+                    outputs["pointcloud_pred"] = field_outputs_dict["semantics"] 
                 
 
-            CONSOLE.print("Forward - feature transformer: ", time5 - time4)
-            CONSOLE.print("Forward - decoder: ", time6 - time5)
+            CONSOLE.print("Forward - feature transformer: ", time6 - time4)
             CONSOLE.print("Forward - head: ", time7 - time6)
 
         time11 = time.time()
@@ -710,8 +748,9 @@ class NeuralSemanticFieldModel(Model):
             elif self.config.rgb_prediction == "direct":
                 loss_dict["rgb_loss"] = self.rgb_loss(outputs["rgb_pred"], outputs["rgb_gt"])
         if "semantics" in self.config.mode:
-            pred = outputs["semantics"][outputs["density_mask"].squeeze()]
-            gt = batch["semantics"][..., 0].long().to(self.device)[outputs["density_mask"].squeeze()]
+            density_mask_accu = torch.any(outputs["density_mask"], dim=-1)
+            pred = outputs["semantics"][density_mask_accu.squeeze()]
+            gt = batch["semantics"][..., 0].long().to(self.device)[density_mask_accu.squeeze()]
             loss_dict["semantics_loss"] = self.cross_entropy_loss(pred, gt)
         if "density" in self.config.mode:
             if self.config.density_prediction == "direct":
@@ -812,7 +851,7 @@ class NeuralSemanticFieldModel(Model):
 
             if not use_all_pixels:
                 ordered_output_tensor = ordered_output_tensor[: image_height * image_width]
-            outputs[output_name] = ordered_output_tensor.view(image_height, image_width, -1)  # type: ignor<e
+            outputs[output_name] = ordered_output_tensor.view(image_height, image_width, -1)  # type: ignore
         return outputs
 
     def get_image_metrics_and_images(

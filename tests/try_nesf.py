@@ -69,8 +69,8 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.machine.num_gpus = 1
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
-    trainConfig.steps_per_eval_batch = 10000
-    trainConfig.steps_per_eval_image = 50
+    trainConfig.steps_per_eval_batch = 2
+    trainConfig.steps_per_eval_image = 3
     trainConfig.steps_per_eval_all_images = 100000000
     trainConfig.max_num_iterations = 10000000
     
@@ -82,9 +82,9 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.eval_num_images_to_sample_from = 8
     trainConfig.pipeline.datamanager.eval_num_times_to_repeat_images = 1
     
-    trainConfig.pipeline.model.pretrain = True
+    trainConfig.pipeline.model.pretrain = False
     trainConfig.pipeline.model.only_last_layer = False
-    trainConfig.pipeline.model.mode = "rgb"
+    trainConfig.pipeline.model.mode = "semantics"
     trainConfig.pipeline.model.batching_mode = "off"
     trainConfig.pipeline.model.batch_size = 2048
     trainConfig.pipeline.model.proximity_loss = False
@@ -106,9 +106,15 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.rgb_prediction = "integration"
     trainConfig.pipeline.model.density_prediction = "direct"
 
+    trainConfig.pipeline.model.use_field_transformer = True
+    trainConfig.pipeline.model.field_transformer_sampler.surface_sampling = False
+    trainConfig.pipeline.model.field_transformer_sampler.samples_per_ray = 3
+    trainConfig.pipeline.model.field_transformer_sampler.ground_tolerance = 0.008
+    trainConfig.pipeline.model.field_transformer_sampler.surface_threshold = 0.5
+    trainConfig.pipeline.model.field_transformer_sampler.ground_points_count = 100000
     
     trainConfig.pipeline.model.feature_generator_config.use_rgb = True
-    trainConfig.pipeline.model.feature_generator_config.out_rgb_dim = 34
+    trainConfig.pipeline.model.feature_generator_config.out_rgb_dim = 3
     trainConfig.pipeline.model.feature_generator_config.use_density = False
     trainConfig.pipeline.model.feature_generator_config.use_pos_encoding = False
     trainConfig.pipeline.model.feature_generator_config.use_dir_encoding = False
