@@ -43,7 +43,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.batching-mode "off" \
 	--pipeline.model.batch_size 16384 \
 	--pipeline.model.mode semantics \
-	--pipeline.model.proximity-loss False \
+	--pipeline.model.proximity-loss True \
 	--pipeline.model.feature-generator-config.jitter 0.000 \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
@@ -61,13 +61,15 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-stratified-config.quant_size 0.0001 \
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
 	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
-	--pipeline.model.use_field-transformer True \
-	--pipeline.model.field-transformer-sampler.surface-sampling False \
-	--pipeline.model.field-transformer-sampler.samples_per_ray 2 \
-	--pipeline.model.field-transformer-sampler.ground_removal_mode "ransac" \
-	--pipeline.model.field-transformer-sampler.ground-points-count 500000 \
-	--pipeline.model.field-transformer-sampler.ground-tolerance 0.008 \
-	--pipeline.model.field-transformer-sampler.surface-threshold 0.5 \
+	--pipeline.model.use_field2field True \
+	--pipeline.model.field2field_sampler.surface_sampling True \
+	--pipeline.model.field2field_sampler.samples_per_ray 24 \
+	--pipeline.model.field2field_sampler.ground_removal_mode "ransac" \
+	--pipeline.model.field2field_sampler.ground_points_count 500000 \
+	--pipeline.model.field2field_sampler.ground_tolerance 0.008 \
+	--pipeline.model.field2field_sampler.surface_threshold 0.5 \
+	--pipeline.model.field2field_sampler.max_points 8192 \
+	--pipeline.model.field2field_config.mode "transformer" \
 	nesf-data \
 	--data-config $DATA_CONFIG 
 

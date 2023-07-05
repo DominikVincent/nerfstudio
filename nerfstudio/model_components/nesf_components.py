@@ -598,6 +598,7 @@ class FeatureGeneratorTorch(nn.Module):
             - ray_samples: [N, used_samples]
         """
         device = transform_batch["points_xyz"].device
+        transform_batch["points_xyz_orig"] = transform_batch["points_xyz"].clone()
 
         encodings = []
         time1 = time.time()
@@ -1060,6 +1061,8 @@ class FieldTransformerConfig(InstantiateConfig):
         num_heads= 2,
     )
 
+    mode: Literal["mean", "transformer"] = "mean"
+
     knn: int = 64
 
 class FieldTransformer(nn.Module):
@@ -1085,27 +1088,32 @@ class FieldTransformer(nn.Module):
         """
 
         assert neural_feat.shape[0] == neural_pos.shape[0], "neural_feat and neural_pos must have the same count of points"
-
-        closest_ind = self.get_k_closest_points(query_pos, neural_pos)  # shape: [N', k]
+        CONSOLE.print("Querying ", query_pos.shape[0], "points in neural field of ", neural_pos.shape[0])
+        closest_ind, closest_dists = self.get_k_closest_points(query_pos, neural_pos)  # shape: [N', k]
 
         # Get the features of the k closest points
         closest_feat = neural_feat[closest_ind]  # shape: [N', k, C]
-        closets_points = neural_pos[closest_ind]  # shape: [N', k, 3]
+        closest_points = neural_pos[closest_ind]  # shape: [N', k, 3]
 
-        # compute the relative positions of the query points to the k closest points
-        rel_pos =  closets_points - query_pos.unsqueeze(1) # shape: [N', k, 3]
+        if self.config.mode == "mean":
+            inv_dist = 1.0 / (closest_dists + 1e-5)  # shape: [N', k]
+            weighted_features = closest_feat * inv_dist.unsqueeze(-1)  # shape: [N', k, C]
+            retrieved_feat = weighted_features.sum(dim=1)  # shape: [N', C]
+        elif self.config.mode == "transformer":
+            # compute the relative positions of the query points to the k closest points
+            rel_pos =  closest_points - query_pos.unsqueeze(1) # shape: [N', k, 3]
 
-        # concatenate the relative positions and the features of the k closest points
-        rel_pos_feat = torch.cat([rel_pos, closest_feat], dim=-1)  # shape: [N', k, 3 + C]
+            # concatenate the relative positions and the features of the k closest points
+            rel_pos_feat = torch.cat([rel_pos, closest_feat], dim=-1)  # shape: [N', k, 3 + C]
 
-        # prepend the learnable query vector
-        rel_pos_feat = torch.cat([rel_pos_feat, self.learnable_query_vector.unsqueeze(0).expand(rel_pos_feat.shape[0], -1, -1)], dim=1)  # shape: [N', k + 1, 3 + C]
-        # apply the transformer
-        rel_pos_feat = self.transformer(rel_pos_feat, batch={})  # shape: [N', k + 1, C]
-        # get the features of the query points
-        retrieved_feat = rel_pos_feat[:, 0, :]  # shape: [N', C]
+            # prepend the learnable query vector
+            rel_pos_feat = torch.cat([rel_pos_feat, self.learnable_query_vector.unsqueeze(0).expand(rel_pos_feat.shape[0], -1, -1)], dim=1)  # shape: [N', k + 1, 3 + C]
+            # apply the transformer
+            rel_pos_feat = self.transformer(rel_pos_feat, batch={})  # shape: [N', k + 1, C]
+            # get the features of the query points
+            retrieved_feat = rel_pos_feat[:, 0, :]  # shape: [N', C]
 
-        retrieved_feat = self.head(retrieved_feat)  # shape: [N', OUT_DIM]
+            retrieved_feat = self.head(retrieved_feat)  # shape: [N', OUT_DIM]
 
         return retrieved_feat
 
@@ -1116,8 +1124,8 @@ class FieldTransformer(nn.Module):
         dists = torch.cdist(query_pos, neural_pos)  # shape: [N', N]
 
         # Find the indices of the k closest points
-        _, indices = torch.topk(dists, self.config.knn, largest=False, sorted=True)  # shape: [N', k]
+        dist, indices = torch.topk(dists, self.config.knn, largest=False, sorted=True, dim=-1)  # shape: [N', k]
 
         # dummy data
         # indices = torch.zeros(query_pos.shape[0], self.config.knn, dtype=torch.int64, device=query_pos.device)
-        return indices
+        return indices, dist
