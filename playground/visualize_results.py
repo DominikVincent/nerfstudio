@@ -36,26 +36,38 @@ import plotly
 # title = "KLEVR Impact of Surface Sampling on mIoU"
 # run_values = {
     # "Pointnet++": {"value": 0.655, "group": "surface sampling"}, #no proxmiity loss
-    # "Pointnet++*": {"value": 0.752, "group": "no surface sampling"},
+    # "Pointnet++*": {"value": ?, "group": "no surface sampling"},
     # "Stratified": {"value": 0.88, "group": "surface sampling"}, # no proximity no pretrained
     # "Stratified*": {"value": ?, "group": "no surface sampling"},
 # }
 
 # Klevr pretrain
-# title="KLEVR Impact of Pretraining on mIoU, stratified transformer, 10 scenes"
-# run_values = {
-#     "scratch": {"value": 0.582, "group": "no pretrain"},
-#     "s3dis": {"value": 0.5497, "group": "no pretrain"},
-#     "rgb-random-0.5 custom decoder": {"value": 0.4709, "group": "pretrain"},
-#     "rgb-random-0.75 custom decoder": {"value": 0.4835, "group": "pretrain"},
-#     "normals": {"value": 0.6392, "group": "pretrain"},
-# }   
+title="KLEVR Impact of Pretraining on mIoU, stratified transformer, 10 scenes"
+run_values = {
+    "scratch": {"value": 0.582, "group": "no pretrain"},
+    "s3dis": {"value": 0.5497, "group": "no pretrain"},
+    "rgb random p=0.5 custom decoder": {"value": 0.4709, "group": "pretrain"},
+    "rgb random p=0.75 custom decoder": {"value": 0.4835, "group": "pretrain"},
+    "normals": {"value": 0.6392, "group": "pretrain"},
+    "rgb patch-fp, p=0.5, k=100": {"value": 0.6462, "group": "pretrain"},
+    "rgb patch-fp, p=0.5, k=400": {"value": 0.6585, "group": "pretrain"},
+    "rgb patch-fp, p=0.5, k=100 custom decoder": {"value": 0.5807, "group": "pretrain"},
+    "rgb patch-fp, p=0.5, k=400 custom decoder": {"value": 0.0, "group": "pretrain"},
+}   
 
 # Klevr Normal Eval
 # title = "KUBASIC-10 normal evaluation"
 # run_values = {
 #     "analytic normals": {"value": 0.4672, "group": "0"},
 #     "predicted normals": {"value": 0.5875, "group": "0"},
+# }
+
+# Toybox-5 best models
+# title = "Toybox-5 mIoU of best Models"
+# run_values = {
+#     "NeSF": {"value": 0.817, "group": "*"},
+#     "Deep Lab": {"value": 0.816, "group": "*"},
+#     "Stratified": {"value": 0.810, "group": "*"},
 # }
 
 # Toybox-5

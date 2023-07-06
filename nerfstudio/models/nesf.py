@@ -482,12 +482,14 @@ class NeuralSemanticFieldModel(Model):
                 ) = self.field_transformer_sampler.sample_scene(ray_bundle, model, batch["model_idx"])
                 all_samples_count = density_mask.shape[0]*density_mask.shape[1]
                 CONSOLE.print("Field Transformer Ray samples used", weights.shape[0], "out of", all_samples_count, "samples")
-
+                timea = time.time()
                 query_points = ray_samples.frustums.get_positions()
                 query_points = query_points.reshape(-1, 3)
                 field_encodings_orig  = field_encodings.squeeze(0)
                 field_encodings = self.field_transformer(query_points, field_encodings_orig, transform_batch["points_xyz_orig"].squeeze(0))
                 field_encodings = field_encodings.unsqueeze(0)
+                timeb = time.time()
+                CONSOLE.print("Field Transformer - inference time: ", timeb - timea)
 
             field_outputs_dict["semantics"] = self.head_semantics(field_encodings)
             time7 = time.time()
@@ -913,10 +915,12 @@ class NeuralSemanticFieldModel(Model):
                 return normalized_entropy.unsqueeze(-1)
 
             images_dict["entropy"] = compute_entropy(outputs["semantics"])
-
+            
+            density_mask_accu = torch.any(outputs["density_mask"], dim=-1).reshape(-1)
             outs = outputs["semantics"].reshape(-1, outputs["semantics"].shape[-1]).to(self.device)
-            gt = batch["semantics"][..., 0].long().reshape(-1)
-            confusion_non_normalized = self.confusion_non_normalized(torch.argmax(outs, dim=-1), gt).detach().cpu().numpy()
+            gt = batch["semantics"][..., 0].long().reshape(-1)[density_mask_accu.squeeze()]
+            pred = torch.argmax(outs, dim=-1)[density_mask_accu.squeeze()]
+            confusion_non_normalized = self.confusion_non_normalized(pred, gt).detach().cpu().numpy()
             miou, per_class_iou = compute_mIoU(confusion_non_normalized)
             total_acc, acc_per_class = calculate_accuracy(confusion_non_normalized)
 
@@ -930,7 +934,7 @@ class NeuralSemanticFieldModel(Model):
             for i, acc in enumerate(acc_per_class):
                 metrics_dict["acc_" + self.semantics.classes[i]] = acc
 
-            confusion = self.confusion(torch.argmax(outs, dim=-1), gt).detach().cpu().numpy()
+            confusion = self.confusion(pred, gt).detach().cpu().numpy()
             if self.config.plot_confusion:
                 fig = ff.create_annotated_heatmap(confusion, x=self.semantics.classes, y=self.semantics.classes)
                 fig.update_layout(title="Confusion matrix", xaxis_title="Predicted", yaxis_title="Actual")

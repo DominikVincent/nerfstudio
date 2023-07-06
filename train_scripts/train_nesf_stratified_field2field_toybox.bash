@@ -62,13 +62,13 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
 	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
 	--pipeline.model.use_field2field True \
-	--pipeline.model.field2field_sampler.surface_sampling True \
-	--pipeline.model.field2field_sampler.samples_per_ray 24 \
+	--pipeline.model.field2field_sampler.surface_sampling False \
+	--pipeline.model.field2field_sampler.samples_per_ray 3 \
 	--pipeline.model.field2field_sampler.ground_removal_mode "ransac" \
 	--pipeline.model.field2field_sampler.ground_points_count 500000 \
 	--pipeline.model.field2field_sampler.ground_tolerance 0.008 \
 	--pipeline.model.field2field_sampler.surface_threshold 0.5 \
-	--pipeline.model.field2field_sampler.max_points 8192 \
+	--pipeline.model.field2field_sampler.max_points 24576 \
 	--pipeline.model.field2field_config.mode "transformer" \
 	nesf-data \
 	--data-config $DATA_CONFIG 

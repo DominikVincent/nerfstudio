@@ -62,7 +62,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-stratified-config.quant_size 0.0001 \
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
 	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
-	--pipeline.model.feature_decoder_model "custom" \
+	--pipeline.model.feature_decoder_model "stratified" \
 	--pipeline.model.feature-decoder-stratified-config.grid_size 0.005 \
 	--pipeline.model.feature-decoder-stratified-config.quant_size 0.0001 \
 	--pipeline.model.feature-decoder-stratified-config.window_size 4 \
@@ -70,8 +70,8 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-decoder-stratified-config.num-layers 3 \
 	--pipeline.model.feature-decoder-stratified-config.depths 2 2 4 \
 	--pipeline.model.masker_config.mask_ratio 0.5 \
-	--pipeline.model.masker_config.mode "patch_fp" \
-	--pipeline.model.masker_config.num-patches 400 \
+	--pipeline.model.masker_config.mode "patch" \
+	--pipeline.model.masker_config.num-patches 100 \
 	--pipeline.model.rgb-prediction "integration" \
 	--wandb-project-name "klevr-results" \
 	nesf-data \
