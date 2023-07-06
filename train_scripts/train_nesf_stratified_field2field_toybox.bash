@@ -12,10 +12,11 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
 
 # RAYS=131072
-RAYS=65536
+# RAYS_NP=65536
 # RAYS=40960
-# RAYS=32768
+RAYS_NP=32768
 # RAYS=16384
+RAYS_QUERY=8192
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
@@ -30,11 +31,11 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.train-num-times-to-repeat-images 4 \
 	--pipeline.datamanager.eval-num-images-to-sample-from 8 \
 	--pipeline.datamanager.eval-num-times-to-repeat-images 4 \
-	--pipeline.datamanager.train-num-rays-per-batch $RAYS \
-	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
-	--pipeline.model.eval-num-rays-per-chunk $RAYS \
-	--pipeline.model.sampler.surface-sampling True \
-	--pipeline.model.sampler.samples-per-ray 24 \
+	--pipeline.datamanager.num-rays-per-neural-pointcloud $RAYS_NP \
+	--pipeline.datamanager.num-rays-per-query $RAYS_QUERY \
+	--pipeline.model.eval-num-rays-per-chunk $RAYS_QUERY \
+	--pipeline.model.sampler.surface-sampling False \
+	--pipeline.model.sampler.samples-per-ray 8 \
 	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500000 \
@@ -63,7 +64,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
 	--pipeline.model.use_field2field True \
 	--pipeline.model.field2field_sampler.surface_sampling False \
-	--pipeline.model.field2field_sampler.samples_per_ray 3 \
+	--pipeline.model.field2field_sampler.samples_per_ray 8 \
 	--pipeline.model.field2field_sampler.ground_removal_mode "ransac" \
 	--pipeline.model.field2field_sampler.ground_points_count 500000 \
 	--pipeline.model.field2field_sampler.ground_tolerance 0.008 \

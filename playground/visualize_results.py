@@ -32,13 +32,13 @@ import plotly
 #     "Stratified ": {"value": 0.813, "group": "no ground removal"},
 # }
 
-# Klevr no surface sampling
+# Klevr no surface sampling 8 samples
 # title = "KLEVR Impact of Surface Sampling on mIoU"
 # run_values = {
     # "Pointnet++": {"value": 0.655, "group": "surface sampling"}, #no proxmiity loss
     # "Pointnet++*": {"value": ?, "group": "no surface sampling"},
     # "Stratified": {"value": 0.88, "group": "surface sampling"}, # no proximity no pretrained
-    # "Stratified*": {"value": ?, "group": "no surface sampling"},
+    # "Stratified*": {"value": 0.8873, "group": "no surface sampling"},
 # }
 
 # Klevr pretrain
