@@ -384,47 +384,20 @@ class NeuralSemanticFieldModel(Model):
         if normal_pred_total_std < 0.1:
             self.broken_normals[model_idx] = True
 
-    @profiler.time_function
-    def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None):
-        model: Model = self.get_model(batch)
-
-        if "normal_image" in batch:
-            normal_image = batch["normal_image"]
-        else:
-            normal_image = None
-
-        # all but density mask are by filtered dimension
-        time1 = time.time()
+    def get_neural_point_cloud(self, ray_bundle: RayBundle, model, model_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         (
             ray_samples,
             weights,
             field_outputs_raw,
             density_mask,
             original_fields_outputs,
-        ) = self.scene_sampler.sample_scene(ray_bundle, model, batch["model_idx"])
+        ) = self.scene_sampler.sample_scene(ray_bundle, model, model_idx)
         all_samples_count = density_mask.shape[0]*density_mask.shape[1]
-        CONSOLE.print("Ray samples used", weights.shape[0], "out of", all_samples_count, "samples")
-        
-    #    self.check_broken_normals(field_outputs_raw, batch["model_idx"])
-        
-        # def get_fake_output(size: int):
-        #     # gt_value = torch.zeros(size, self.learned_low_density_value.shape[0]).to(self.learned_low_density_value.device)
-        #     pred_value = self.learned_low_density_value.repeat(size, 1)
-        #     outputs = {
-        #         "rgb": pred_value,
-        #         "density": pred_value,
-        #         "semantics": pred_value,
-        #     }
-        #     return outputs
-        # outputs = get_fake_output(ray_bundle.shape[0])
-        # return outputs
-        
-        time2 = time.time()
-        # potentially batch up and infuse field outputs with random points
+
         field_outputs_raw, transform_batch = self.batching(ray_samples, field_outputs_raw)
-        time3 = time.time()
-        # TODO return the transformed points
+
         outs, transform_batch = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49t
+
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
@@ -432,111 +405,73 @@ class NeuralSemanticFieldModel(Model):
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
-        time4 = time.time()
+
+        if self.config.pretrain:
+            outs, mask, ids_restore, batch = self.masker.mask(outs, transform_batch)
+            outs = self.feature_transformer(outs, batch=transform_batch)
+            outs, transform_batch = self.masker.unmask(outs, transform_batch, ids_restore)
+            field_encodings = self.decoder(outs, batch=transform_batch)
+        else:
+            field_encodings = self.feature_transformer(outs, batch=transform_batch)
         
-        CONSOLE.print("Forward - sampling: ", time2 - time1)
-        CONSOLE.print("Forward - batching: ", time3 - time2)
-        CONSOLE.print("Forward - feature model: ", time4 - time3)
-        CONSOLE.print("Forward - Processing pointcloud: ", outs.shape)
-        outputs = {}
+        return field_encodings, transform_batch["points_xyz_orig"] 
+    
+    @profiler.time_function
+    def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None):
+        model: Model = self.get_model(batch)
+        if "neural_points" in batch and "neural_features" in batch:
+            neural_points = batch["neural_points"]
+            neural_features = batch["neural_features"]
+        else:
+            time1=time.time()
+            neural_features, neural_points = self.get_neural_point_cloud(batch["ray_bundle_np"], model, batch["model_idx"])
+            neural_features = neural_features.squeeze(0)
+            neural_points = neural_points.squeeze(0)
+            time2 = time.time()
+            CONSOLE.print("Neural point cloud generation took", time2-time1, "seconds")
+        (
+            ray_samples,
+            weights,
+            field_outputs_raw,
+            density_mask,
+            original_fields_outputs,
+        ) = self.field_transformer_sampler.sample_scene(ray_bundle, model, batch["model_idx"])
+
+        time3 = time.time()
+        all_samples_count = density_mask.shape[0]*density_mask.shape[1]
+        query_points = ray_samples.frustums.get_positions()
+        query_points = query_points.reshape(-1, 3)
+        field_encodings = self.field_transformer(query_points, neural_features, neural_points)
+        field_encodings = field_encodings.unsqueeze(0)
+        time4 = time.time()
+        CONSOLE.print("Field2Field Transformer took", time4-time3, "seconds")
+
+        CONSOLE.print("Field Transformer Ray samples used", weights.shape[0], "out of", all_samples_count, "samples")
+        outputs = {
+            "neural_points": neural_points,
+            "neural_features": neural_features,
+        }
         field_outputs_dict = {}
         if self.config.pretrain:
-            # remove all the masked points from outs. The masks tells which points got removed.
-            time5 = time.time()
-            outs, mask, ids_restore, batch = self.masker.mask(outs, transform_batch)
-            time6 = time.time()
-            outs = self.feature_transformer(outs, batch=transform_batch)
-            time7 = time.time()
-            outs, transform_batch = self.masker.unmask(outs, transform_batch, ids_restore)
-            time8 = time.time()
-            outs = self.decoder(outs, batch=transform_batch)
-            time9 = time.time()
+            # probably does not work (yet)
             if "rgb" in self.config.mode:
-                field_outputs_dict["rgb"] = self.head_rgb(outs)
+                field_outputs_dict["rgb"] = self.head_rgb(field_encodings)
             if "density" in self.config.mode:
-                field_outputs_dict["density"] = self.head_density(outs)
+                field_outputs_dict["density"] = self.head_density(field_encodings)
             if "semantics" in self.config.mode:
-                field_outputs_dict["semantics"] = self.head_semantics(outs)
+                field_outputs_dict["semantics"] = self.head_semantics(field_encodings)
             if "normals" in self.config.mode:
-                field_outputs_dict["normals"] = self.head_normals(outs)
-            time10 = time.time()
-            CONSOLE.print("Forward - masking: ", time6 - time5)
-            CONSOLE.print("Forward - feature transformer: ", time7 - time6)
-            CONSOLE.print("Forward - unmasking: ", time8 - time7)
-            CONSOLE.print("Forward - decoder: ", time9 - time8)
-            CONSOLE.print("Forward - head: ", time10 - time9)
+                field_outputs_dict["normals"] = self.head_normals(field_encodings)
         else:
-            # print("outs: ", outs.shape)
-            field_encodings = self.feature_transformer(outs, batch=transform_batch)
-            time6 = time.time()
-
-            if self.config.use_field2field:
-                assert self.config.pretrain is False
-                assert self.config.batching_mode == "off"
-                (
-                    ray_samples,
-                    weights,
-                    field_outputs_raw,
-                    density_mask,
-                    original_fields_outputs,
-                ) = self.field_transformer_sampler.sample_scene(ray_bundle, model, batch["model_idx"])
-                all_samples_count = density_mask.shape[0]*density_mask.shape[1]
-                CONSOLE.print("Field Transformer Ray samples used", weights.shape[0], "out of", all_samples_count, "samples")
-                timea = time.time()
-                query_points = ray_samples.frustums.get_positions()
-                query_points = query_points.reshape(-1, 3)
-                field_encodings_orig  = field_encodings.squeeze(0)
-                field_encodings = self.field_transformer(query_points, field_encodings_orig, transform_batch["points_xyz_orig"].squeeze(0))
-                field_encodings = field_encodings.unsqueeze(0)
-                timeb = time.time()
-                CONSOLE.print("Field Transformer - inference time: ", timeb - timea)
-
             field_outputs_dict["semantics"] = self.head_semantics(field_encodings)
-            time7 = time.time()
             
             if self.config.proximity_loss:
-                if self.config.use_field2field:
-                    query_points_noise = query_points + torch.randn_like(query_points) * 0.003
-                    field_encodings_noise = self.field_transformer(query_points_noise, field_encodings_orig, transform_batch["points_xyz_orig"].squeeze(0))
-                    field_encodings_noise = field_encodings_noise.unsqueeze(0)
-                    outputs["pointcloud_pred_noise"] = field_encodings_noise
-                    outputs["pointcloud_pred"] = field_encodings
-                else:
-                    transform_batch["points_xyz"] = transform_batch["points_xyz"] + torch.randn_like(transform_batch["points_xyz"]) * 0.003
-                    outs_noise, transform_batch_noise = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49
-                    field_encodings_noise = self.feature_transformer(outs_noise, batch=transform_batch_noise)
-                    field_encodings_noise = self.decoder(field_encodings_noise)
-                    field_outputs_noise = self.head_semantics(field_encodings_noise)
-                    outputs["pointcloud_pred_noise"] = field_outputs_noise
-                    outputs["pointcloud_pred"] = field_outputs_dict["semantics"] 
-                
+                query_points_noise = query_points + torch.randn_like(query_points) * 0.003
+                field_encodings_noise = self.field_transformer(query_points_noise, neural_features, neural_points)
+                field_encodings_noise = field_encodings_noise.unsqueeze(0)
+                outputs["pointcloud_pred_noise"] = field_encodings_noise
+                outputs["pointcloud_pred"] = field_encodings
 
-            CONSOLE.print("Forward - feature transformer: ", time6 - time4)
-            CONSOLE.print("Forward - head: ", time7 - time6)
-
-        time11 = time.time()
-        # unbatch the data
-        if self.config.batching_mode != "off":
-            for k, v in field_outputs_dict.items():
-                field_outputs_dict[k] = v.reshape(1, -1, v.shape[-1])
-
-            for k, v in field_outputs_raw.items():
-                field_outputs_raw[k] = v.reshape(1, -1, v.shape[-1])
-
-            # reshuffle results
-            for k, v in field_outputs_dict.items():
-                field_outputs_dict[k] = v[:, transform_batch["ids_restore"], :]
-            for k, v in field_outputs_raw.items():
-                field_outputs_raw[k] = v[:, transform_batch["ids_restore"], :]
-            
-            # removed padding token
-            for k, v in field_outputs_dict.items():
-                field_outputs_dict[k] = v[:, : ray_samples.shape[0], :]
-            for k, v in field_outputs_raw.items():
-                field_outputs_raw[k] = v[:, : ray_samples.shape[0], :]
-        time12 = time.time()
-        CONSOLE.print("Forward - unbatching: ", time12 - time11)
-        
         if "rgb" in self.config.mode:
             # debug rgb
             rgb = torch.empty((*density_mask.shape, 3), device=self.device)
@@ -779,12 +714,16 @@ class NeuralSemanticFieldModel(Model):
             :param batch: additional information of the batch here it includes at least the model
         """
         if isinstance(camera_ray_bundle, list):
-            images = len(camera_ray_bundle)
-            camera_ray_bundle = stack_ray_bundles(camera_ray_bundle)
-            image_height, image_width = camera_ray_bundle.origins.shape[:2]
-            image_height = image_height // images
-            use_all_pixels = False
+            images = len(camera_ray_bundle[1:])
+            camera_ray_bundle_query = camera_ray_bundle[0]
+            camera_ray_bundle_np = stack_ray_bundles(camera_ray_bundle[1:])
+            length = len(camera_ray_bundle_np)
+            camera_ray_bundle_np = camera_ray_bundle_np.flatten()[torch.randperm(length)][:batch["neural_point_cloud_size"]]
+            batch["ray_bundle_np"] = camera_ray_bundle_np
+            image_height, image_width = camera_ray_bundle_query.shape
+            use_all_pixels = True
         else:
+            assert False, "Not longer supported"
             use_all_pixels = True
             image_height, image_width = camera_ray_bundle.origins.shape[:2]
 
@@ -810,7 +749,7 @@ class NeuralSemanticFieldModel(Model):
             return torch.cat(final_indices, dim=0), reverse_indices
 
         num_rays_per_chunk = self.config.eval_num_rays_per_chunk
-        num_rays = len(camera_ray_bundle)
+        num_rays = len(camera_ray_bundle_query)
         outputs_lists = defaultdict(list)
         if self.config.space_partitioning == "evenly":
             ray_order, reversed_ray_order = batch_evenly(num_rays, num_rays_per_chunk)
@@ -824,22 +763,28 @@ class NeuralSemanticFieldModel(Model):
         for i in range(0, num_rays, num_rays_per_chunk):
             if self.config.space_partitioning != "row_wise":
                 indices = ray_order[i : i + num_rays_per_chunk]
-                ray_bundle = camera_ray_bundle.flatten()[indices]
+                ray_bundle = camera_ray_bundle_query.flatten()[indices]
             else:
                 start_idx = i
                 end_idx = i + num_rays_per_chunk
-                ray_bundle = camera_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
-
+                ray_bundle = camera_ray_bundle_query.get_row_major_sliced_ray_bundle(start_idx, end_idx)
             outputs = self.forward(ray_bundle=ray_bundle, batch=batch)
+            batch["neural_points"] = outputs["neural_points"]
+            batch["neural_features"] = outputs["neural_features"]
+
             for output_name, output in outputs.items():  # type: ignore
                 outputs_lists[output_name].append(output)
-        outputs = {}
+        outputs = {
+            "neural_points": batch["neural_points"],
+            "neural_features": batch["neural_features"],
+        }
         for output_name, outputs_list in outputs_lists.items():
             if not torch.is_tensor(outputs_list[0]):
                 # TODO: handle lists of tensors as well
                 continue
             if self.config.space_partitioning != "row_wise":
-                if  output_name == "normals_pred" or output_name == "normals_gt" or output_name == "pointcloud_pred" or output_name == "pointcloud_pred_noise":
+                if  output_name == "normals_pred" or output_name == "normals_gt" or output_name == "pointcloud_pred" or output_name == "pointcloud_pred_noise" \
+                    or output_name == "neural_points" or output_name == "neural_features":
                     continue
                 # TODO maybe fix later
                     unordered_output_tensor = torch.cat(outputs_list, dim=1).squeeze(0)

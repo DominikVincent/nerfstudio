@@ -59,7 +59,7 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     """how many images should be evaluated per scene when evaluating all images. -1 means all"""
     save_images = False
     """save images during all image evaluation"""
-    images_to_sample_during_eval_image: int = 8
+    images_to_sample_during_eval_image: int = 10
 
 
 class NesfPipeline(Pipeline):
@@ -130,21 +130,22 @@ class NesfPipeline(Pipeline):
             step: current iteration step to update sampler if using DDP (distributed)
         """
         time1  = time()
-        ray_bundle, batch = self.datamanager.next_train(step)
+        ray_bundle_np, batch_np, ray_bundle_query, batch_query = self.datamanager.next_train(step)
         time2 = time()
         CONSOLE.print(f"Time to get next train batch: {time2 - time1}")
-       
-        transformer_model_outputs = self.model(ray_bundle, batch)
+
+        batch_query["ray_bundle_np"] = ray_bundle_np
+        transformer_model_outputs = self.model(ray_bundle_query, batch_query)
 
         time3 = time()
         CONSOLE.print(f"Time to run model forward: {time3 - time2}")
-        metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch)
+        metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch_query)
         
         time4 = time()
 
         # No need for camera opt param groups as the nerfs are assumed to be fixed already.
 
-        loss_dict = self.model.get_loss_dict(transformer_model_outputs, batch, metrics_dict)
+        loss_dict = self.model.get_loss_dict(transformer_model_outputs, batch_query, metrics_dict)
         time5 = time()
         
         CONSOLE.print(f"Time to get metrics dict: {time4 - time3}")
@@ -170,10 +171,12 @@ class NesfPipeline(Pipeline):
         """
         # self.datamanager.models_to_cpu(step)
         self.eval()
-        ray_bundle, batch = self.datamanager.next_eval(step)
-        transformer_model_outputs = self.model(ray_bundle, batch)
-        metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch)
-        loss_dict = self.model.get_loss_dict(transformer_model_outputs, batch, metrics_dict)
+        ray_bundle_np, batch_np, ray_bundle_query, batch_query = self.datamanager.next_eval(step)
+
+        batch_query["ray_bundle_np"] = ray_bundle_np
+        transformer_model_outputs = self.model(ray_bundle_query, batch_query)
+        metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch_query)
+        loss_dict = self.model.get_loss_dict(transformer_model_outputs, batch_query, metrics_dict)
         self.train()
         return transformer_model_outputs, loss_dict, metrics_dict
 
@@ -201,6 +204,7 @@ class NesfPipeline(Pipeline):
         batch["model"] =  load_model(batch["model_path"], model_config).to(self.device, non_blocking=True)
         batch["image_idx"] = image_idx
         batch["model_idx"] = model_idx
+        batch["neural_point_cloud_size"] = self.config.datamanager.num_rays_per_neural_pointcloud
         outputs = self.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle, batch)
         metrics_dict, images_dict = self.model.get_image_metrics_and_images(outputs, batch)
 
@@ -261,6 +265,8 @@ class NesfPipeline(Pipeline):
             task = progress.add_task("[green]Evaluating all eval images...", total=num_images)
             for model_idx, fixed_indices_eval_dataloader in enumerate(self.datamanager.fixed_indices_eval_dataloaders):
                 ray_bundles = []
+                neural_points = None
+                neural_features = None
                 for image_idx, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
                     if image_idx >= self.config.images_to_sample_during_eval_image - 1:
                         break
@@ -268,6 +274,8 @@ class NesfPipeline(Pipeline):
                         camera_ray_bundle.nears = batch["depth_image"]
                         camera_ray_bundle.fars = batch["depth_image"]
                     ray_bundles.insert(0, camera_ray_bundle)
+
+                
                 for i, (camera_ray_bundle, batch) in enumerate(fixed_indices_eval_dataloader):
                     if miou_3d:
                         camera_ray_bundle.nears = batch["depth_image"]
@@ -290,7 +298,13 @@ class NesfPipeline(Pipeline):
                     inner_start = time()
                     height, width = camera_ray_bundle.shape
                     num_rays = height * width
+                    if neural_points is not None:
+                        batch["neural_points"] = neural_points
+                        batch["neural_features"] = neural_features
+                    batch["neural_point_cloud_size"] = self.config.datamanager.num_rays_per_neural_pointcloud
                     outputs = self.model.get_outputs_for_camera_ray_bundle(ray_bundles, batch)
+                    neural_points = outputs["neural_points"]
+                    neural_features = outputs["neural_features"]
                     metrics_dict, image_dict = self.model.get_image_metrics_and_images(outputs, batch)
                     
                     # move model back to cpu to not waste vram

@@ -275,7 +275,7 @@ class SceneSampler:
         mask = distances > self.config.ground_tolerance
         
         time_end = time.time()
-        print("Ground plane fitting took: ", time_end - time_start, " seconds")
+        # print("Ground plane fitting took: ", time_end - time_start, " seconds")
         print("Mask", mask)
         return mask
 
@@ -745,16 +745,16 @@ class FeatureGeneratorTorch(nn.Module):
             log_points_to_wandb(transform_batch["points_xyz"])
         
         time11 = time.time()
-        CONSOLE.print("FeatureGenerator - time1: ", time2 - time1)
-        CONSOLE.print("FeatureGenerator - time2: ", time3 - time2)
-        CONSOLE.print("FeatureGenerator - time3: ", time4 - time3)
-        CONSOLE.print("FeatureGenerator - time4: ", time5 - time4)
-        CONSOLE.print("FeatureGenerator - time5: ", time6 - time5)
-        CONSOLE.print("FeatureGenerator - time6: ", time7 - time6)
-        CONSOLE.print("FeatureGenerator - time7: ", time8 - time7)
-        CONSOLE.print("FeatureGenerator - time8: ", time9 - time8)
-        CONSOLE.print("FeatureGenerator - time9: ", time10 - time9)
-        CONSOLE.print("FeatureGenerator - time10: ", time11 - time10)
+        # CONSOLE.print("FeatureGenerator - time1: ", time2 - time1)
+        # CONSOLE.print("FeatureGenerator - time2: ", time3 - time2)
+        # CONSOLE.print("FeatureGenerator - time3: ", time4 - time3)
+        # CONSOLE.print("FeatureGenerator - time4: ", time5 - time4)
+        # CONSOLE.print("FeatureGenerator - time5: ", time6 - time5)
+        # CONSOLE.print("FeatureGenerator - time6: ", time7 - time6)
+        # CONSOLE.print("FeatureGenerator - time7: ", time8 - time7)
+        # CONSOLE.print("FeatureGenerator - time8: ", time9 - time8)
+        # CONSOLE.print("FeatureGenerator - time9: ", time10 - time9)
+        # CONSOLE.print("FeatureGenerator - time10: ", time11 - time10)
         return out, transform_batch
 
     def normalize_positions(self, points: torch.tensor) -> torch.tensor:

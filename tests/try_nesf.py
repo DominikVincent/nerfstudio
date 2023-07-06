@@ -69,8 +69,8 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.machine.num_gpus = 1
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
-    trainConfig.steps_per_eval_batch = 2
-    trainConfig.steps_per_eval_image = 3
+    trainConfig.steps_per_eval_batch = 100
+    trainConfig.steps_per_eval_image = 200
     trainConfig.steps_per_eval_all_images = 100000000
     trainConfig.max_num_iterations = 10000000
     
@@ -107,6 +107,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.density_prediction = "direct"
 
     trainConfig.pipeline.model.use_field2field = True
+    trainConfig.pipeline.model.field2field_config.mode = "transformer"
     trainConfig.pipeline.model.field2field_sampler.surface_sampling = True
     trainConfig.pipeline.model.field2field_sampler.samples_per_ray = 24
     trainConfig.pipeline.model.field2field_sampler.ground_tolerance = 0.008
