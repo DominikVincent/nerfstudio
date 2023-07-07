@@ -496,6 +496,7 @@ class NeuralSemanticFieldModel(Model):
             if ray_bundle.nears is not None:
                 weights = weights + 1.0
 
+            print("desnity mask shape", density_mask.shape, " semantics: ", field_outputs_dict["semantics"].shape)
             semantics[density_mask] = field_outputs_dict["semantics"]  # 1, num_dense_samples, 6
             weights_all[density_mask] = weights
 
