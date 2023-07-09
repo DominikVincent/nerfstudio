@@ -32,9 +32,9 @@ def run_nesf(vis: str = "wandb"):
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
     # )
 
-    data_config_path = Path(
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_normal_nesf_train_10.json"
-    )    
+    # data_config_path = Path(
+    #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_normal_nesf_train_10.json"
+    # )    
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_10_10.json"
     # )
@@ -50,9 +50,9 @@ def run_nesf(vis: str = "wandb"):
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_200_270.json"
     # )
-    # data_config_path = Path(
-    #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_529_270.json"
-    # )
+    data_config_path = Path(
+        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_500_270.json"
+    )
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_10_270.json"
     # )
@@ -133,6 +133,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.feature_transformer_stratified_config.window_size = 5
     trainConfig.pipeline.model.feature_transformer_stratified_config.quant_size = 0.0001
     trainConfig.pipeline.model.feature_transformer_stratified_config.num_layers = 4
+    trainConfig.pipeline.model.feature_transformer_stratified_config.load_dir = ""
     
     trainConfig.pipeline.model.feature_decoder_model = "stratified"
     trainConfig.pipeline.model.feature_decoder_custom_config.num_layers = 2

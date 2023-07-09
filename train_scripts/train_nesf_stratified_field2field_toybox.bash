@@ -12,11 +12,12 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
 
 # RAYS_NP=131072
-# RAYS_NP=65536
+RAYS_NP=65536
 # RAYS_NP=40960
-RAYS_NP=24576
+# RAYS_NP=24576
 # RAYS_NP=16384
-RAYS_QUERY=8192
+RAYS_QUERY=32768
+# RAYS_QUERY=8192
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
@@ -34,8 +35,8 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.num-rays-per-neural-pointcloud $RAYS_NP \
 	--pipeline.datamanager.num-rays-per-query $RAYS_QUERY \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS_QUERY \
-	--pipeline.model.sampler.surface-sampling False \
-	--pipeline.model.sampler.samples-per-ray 8 \
+	--pipeline.model.sampler.surface-sampling True \
+	--pipeline.model.sampler.samples-per-ray 24 \
 	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500000 \
@@ -61,7 +62,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-stratified-config.grid_size 0.005 \
 	--pipeline.model.feature-transformer-stratified-config.quant_size 0.0001 \
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
-	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
+	--pipeline.model.feature-transformer-stratified-config.load_dir "/data/vision/polina/projects/wmh/dhollidt/documents/Stratified-Transformer/weights/s3dis_model_best.pth" \
 	--pipeline.model.use_field2field True \
 	--pipeline.model.field2field_sampler.surface_sampling True \
 	--pipeline.model.field2field_sampler.samples_per_ray 24 \

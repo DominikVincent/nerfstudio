@@ -335,12 +335,12 @@ method_configs["phototourism"] = TrainerConfig(
 
 
 # RAYS_PER_BATCH = 131072
-RAYS_PER_BATCH = 8192
-QUERY_RAYS_PER_BATCH = 4096
+RAYS_PER_BATCH = 12288
+QUERY_RAYS_PER_BATCH = 8192
 MAX_NUM_ITERATIONS = 500000
 END_DECAY = 80000
-LR_START = 0.001
-LR_END = 0.005 * 0.1
+LR_START = 0.006
+LR_END = LR_START * 0.1
 TRANSFORMER_LR_SCALE = 0.1
 method_configs["nesf"] = TrainerConfig(
     method_name="nesf",
