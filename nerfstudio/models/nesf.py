@@ -327,7 +327,7 @@ class NeuralSemanticFieldModel(Model):
             
             
             else:
-                parameters_to_optimize = self.feature_transformer.named_parameters()
+                parameters_to_optimize = list(self.feature_transformer.named_parameters())
             
             feature_transformer_params = [p for n, p in parameters_to_optimize if "blocks" not in n and p.requires_grad]
             feature_transformer_transformer_params = [p for n, p in parameters_to_optimize if "blocks" in n and p.requires_grad]
