@@ -117,6 +117,7 @@ run_values = {
 #     "normals": {"value": 0.7565, "group": "pretrained"},
 #     "normals, rgb p=0.5": {"value": 0.627, "group": "pretrained"},
 #     "normals, rgb p=0.0": {"value": 0.7321, "group": "pretrained"},
+#     "normals, rgb patch-fp p=0.5, k=100": {"value": 0.709, "group": "pretrained"},
 # }
 
 
