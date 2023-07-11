@@ -92,36 +92,38 @@ run_values = {
 # }
 
 # Toybox-5 impact of pretraining on mIoU 100 scenes 270 images
-title = "Toybox-5 Impact of Pretraining on mIoU, stratified transformer, 100 scenes 270 images"
-run_values = {
-    "scratch": {"value": 0.750, "group": "no pretrain"},
-    "S3DIS pretrained": {"value": 0.7742, "group": "pretrained"},
-    "rgb random p=0.5": {"value": 0.7131, "group": "pretrained"},
-    "rgb random p=0.75": {"value": 0.7013, "group": "pretrained"},
-    "rgb patch p=0.5 k=400": {"value": 0.6969, "group": "pretrained"},
-    "rgb patch p=0.5 k=100": {"value": 0.6238, "group": "pretrained"},
-    "normals": {"value": 0.7267, "group": "pretrained"},
-    "normals, rgb p=0.5": {"value": 0.6271, "group": "pretrained"},
-    "normals, rgb p=0.0": {"value": 0.7267, "group": "pretrained"},
-    "normals, rgb patch-fp p=0.5, k=100": {"value": 0.7041, "group": "pretrained"},
-    "density": {"value": 0.6521, "group": "pretrained"},
-}
+# title = "Toybox-5 Impact of Pretraining on mIoU, stratified transformer, 100 scenes 270 images"
+# run_values = {
+#     "scratch all parameters": {"value": 0.750, "group": "no pretrain"},
+#     "scratch subset": {"value": 0.7263, "group": "no pretrain"},
+#     "S3DIS pretrained all parameters": {"value": 0.7742, "group": "pretrained"},
+#     "rgb random p=0.5": {"value": 0.7131, "group": "pretrained"},
+#     "rgb random p=0.75": {"value": 0.7013, "group": "pretrained"},
+#     "rgb patch p=0.5 k=100": {"value": 0.4112, "group": "pretrained"}, 
+#     "rgb patch p=0.5 k=400": {"value": 0.6224, "group": "pretrained"},
+#     "normals": {"value": 0.7267, "group": "pretrained"},
+#     "normals, rgb p=0.5": {"value": 0.6271, "group": "pretrained"},
+#     "normals, rgb p=0.0": {"value": 0.7267, "group": "pretrained"},
+#     "normals, rgb patch-fp p=0.5, k=100": {"value": 0.7041, "group": "pretrained"},
+#     "density": {"value": 0.6521, "group": "pretrained"},
+# }
 
 # Toybox-5 impact of pretraining on mIoU 100 scenes 
-# title = "Toybox-5 Impact of Pretraining on mIoU, stratified transformer, 100 scenes 10 images"
-# run_values = {
-#     "scratch": {"value": 0.7458, "group": "no pretrain"},
-#     "S3DIS pretrained": {"value": 0.7526, "group": "pretrained"},
-#     "rgb random p=0.5": {"value": 0.6798, "group": "pretrained"},
-#     "rgb random p=0.75": {"value": 0.6803, "group": "pretrained"},
-#     "rgb patch p=0.5 k=400": {"value": 0.396, "group": "pretrained"},
-#     "rgb patch p=0.5 k=100": {"value": 0.5496, "group": "pretrained"},
-#     "normals": {"value": 0.7565, "group": "pretrained"},
-#     "normals, rgb p=0.5": {"value": 0.627, "group": "pretrained"},
-#     "normals, rgb p=0.0": {"value": 0.7321, "group": "pretrained"},
-#     "normals, rgb patch-fp p=0.5, k=100": {"value": 0.709, "group": "pretrained"},
-#     "density": {"value": 0.6117, "group": "pretrained"},
-# }
+title = "Toybox-5 Impact of Pretraining on mIoU, stratified transformer, 100 scenes 10 images"
+run_values = {
+    "scratch": {"value": 0.7458, "group": "no pretrain"},
+    "scratch all parameters": {"value": 0.7058, "group": "no pretrain"},
+    "S3DIS pretrained all parameters": {"value": 0.7526, "group": "pretrained"},
+    "rgb random p=0.5": {"value": 0.6798, "group": "pretrained"},
+    "rgb random p=0.75": {"value": 0.6803, "group": "pretrained"},
+    "rgb patch p=0.5 k=100": {"value": 0.396, "group": "pretrained"},
+    "rgb patch p=0.5 k=400": {"value": 0.5496, "group": "pretrained"},
+    "normals": {"value": 0.7565, "group": "pretrained"},
+    "normals, rgb p=0.5": {"value": 0.627, "group": "pretrained"},
+    "normals, rgb p=0.0": {"value": 0.7321, "group": "pretrained"},
+    "normals, rgb patch-fp p=0.5, k=100": {"value": 0.709, "group": "pretrained"},
+    "density": {"value": 0.6117, "group": "pretrained"},
+}
 
 
 show_legend = not all(run_data["group"] == next(iter(run_values.values()))["group"] for run_data in run_values.values())
