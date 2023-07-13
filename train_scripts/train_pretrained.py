@@ -49,7 +49,7 @@ def rewrite_config(config_path: Path, name: str, data_config_path: Union[str, No
     else:
         config.load_dir = checkpoint_dir
     config.load_pretrained_model = True
-    config.wandb_project_name = "toybox-5-nesf"
+    # config.wandb_project_name = "toybox-5-nesf"
     
     # remove the pretraining from the model config
     config.pipeline.model.pretrain = False
