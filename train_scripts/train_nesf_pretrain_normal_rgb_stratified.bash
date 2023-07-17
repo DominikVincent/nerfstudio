@@ -71,7 +71,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-decoder-stratified-config.num-layers 3 \
 	--pipeline.model.feature-decoder-stratified-config.depths 2 2 4 \
 	--pipeline.model.masker_config.mask_ratio 0.5 \
-	--pipeline.model.masker_config.mode "patch_fp" \
+	--pipeline.model.masker_config.mode "patch" \
 	--pipeline.model.masker_config.num-patches 100 \
 	--pipeline.model.rgb-prediction "integration" \
 	nesf-data \

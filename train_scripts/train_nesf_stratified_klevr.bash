@@ -4,19 +4,19 @@ source /data/vision/polina/projects/wmh/dhollidt/conda/bin/activate
 conda activate nerfstudio2
 
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_100.json"
-# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_10.json"
-DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
+DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_normal_nesf_train_10.json"
+# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_100_270.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_500_270.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_270.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
 
 # RAYS=131072
-# RAYS=65536
+RAYS=65536
 # RAYS=40960
 # RAYS=32768
 # RAYS=16384
-RAYS=8192
+# RAYS=8192
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
@@ -34,8 +34,8 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.train-num-rays-per-batch $RAYS \
 	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
-	--pipeline.model.sampler.surface-sampling False \
-	--pipeline.model.sampler.samples-per-ray 8 \
+	--pipeline.model.sampler.surface-sampling True \
+	--pipeline.model.sampler.samples-per-ray 24 \
 	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500000 \
@@ -44,14 +44,14 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.batching-mode "off" \
 	--pipeline.model.batch_size 16384 \
 	--pipeline.model.mode semantics \
-	--pipeline.model.proximity-loss False \
+	--pipeline.model.proximity-loss True \
 	--pipeline.model.feature-generator-config.jitter 0.000 \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
 	--pipeline.model.feature-generator-config.use-dir-encoding True \
 	--pipeline.model.feature-generator-config.use-pos-encoding True \
-	--pipeline.model.feature-generator-config.use-normal-encoding False \
 	--pipeline.model.feature-generator-config.pos-encoder "sin" \
+	--pipeline.model.feature-generator-config.use-normal-encoding False \
 	--pipeline.model.feature-generator-config.use-density True \
 	--pipeline.model.feature-generator-config.out-rgb-dim 16 \
 	--pipeline.model.feature-generator-config.out-density-dim 8 \
@@ -61,7 +61,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-stratified-config.grid_size 0.005 \
 	--pipeline.model.feature-transformer-stratified-config.quant_size 0.0001 \
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
-	--pipeline.model.feature-transformer-stratified-config.load_dir "" \
+	--pipeline.model.feature-transformer-stratified-config.load_dir "/data/vision/polina/projects/wmh/dhollidt/documents/Stratified-Transformer/weights/s3dis_model_best.pth" \
 	--wandb-project-name "klevr-results" \
 	nesf-data \
 	--data-config $DATA_CONFIG 
