@@ -89,15 +89,15 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.batch_size = 2048
     trainConfig.pipeline.model.proximity_loss = True
     trainConfig.pipeline.model.feature_generator_config.rot_augmentation = True
-    trainConfig.pipeline.model.feature_generator_config.jitter = 0.001
+    trainConfig.pipeline.model.feature_generator_config.jitter = 0.000
     
     trainConfig.pipeline.model.sampler.surface_sampling = False
     trainConfig.pipeline.model.sampler.get_normals = True
     trainConfig.pipeline.model.sampler.samples_per_ray = 8
     trainConfig.pipeline.model.sampler.ground_removal_mode = "ransac"
-    trainConfig.pipeline.model.sampler.ground_tolerance = 0.008
+    trainConfig.pipeline.model.sampler.ground_tolerance = 0.007
     trainConfig.pipeline.model.sampler.surface_threshold = 0.5
-    trainConfig.pipeline.model.sampler.ground_points_count = 1000000
+    trainConfig.pipeline.model.sampler.ground_points_count = 10000000
     
     trainConfig.pipeline.model.masker_config.mode = "patch_fp"
     trainConfig.pipeline.model.masker_config.mask_ratio = 0.5
@@ -110,10 +110,10 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.field2field_config.mode = "transformer"
     trainConfig.pipeline.model.field2field_sampler.surface_sampling = False
     trainConfig.pipeline.model.field2field_sampler.samples_per_ray = 8
-    trainConfig.pipeline.model.field2field_sampler.ground_tolerance = 0.008
+    trainConfig.pipeline.model.field2field_sampler.ground_tolerance = 0.007
     trainConfig.pipeline.model.field2field_sampler.surface_threshold = 0.5
-    trainConfig.pipeline.model.field2field_sampler.ground_points_count = 100000
-    trainConfig.pipeline.model.field2field_sampler.max_points = 100
+    trainConfig.pipeline.model.field2field_sampler.ground_points_count = 10000000
+    trainConfig.pipeline.model.field2field_sampler.max_points = 200000
     trainConfig.pipeline.model.field2field_sampler.ground_removal_mode = "ransac"
     
     trainConfig.pipeline.model.feature_generator_config.use_rgb = True

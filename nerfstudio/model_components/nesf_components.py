@@ -1086,7 +1086,6 @@ class FieldTransformer(nn.Module):
         Returns:
             [N', C] tensor
         """
-
         assert neural_feat.shape[0] == neural_pos.shape[0], "neural_feat and neural_pos must have the same count of points"
         CONSOLE.print("Querying ", query_pos.shape[0], "points in neural field of ", neural_pos.shape[0])
         closest_ind, closest_dists = self.get_k_closest_points(query_pos, neural_pos)  # shape: [N', k]
@@ -1094,6 +1093,10 @@ class FieldTransformer(nn.Module):
         # Get the features of the k closest points
         closest_feat = neural_feat[closest_ind]  # shape: [N', k, C]
         closest_points = neural_pos[closest_ind]  # shape: [N', k, 3]
+
+        # points_stacked = torch.cat([query_pos.unsqueeze(0), neural_pos.unsqueeze(0)], dim=1)
+        # labels = torch.cat([torch.ones(1, query_pos.shape[0]), torch.zeros(1, neural_pos.shape[0])], dim=1).long()
+        # visualize_point_batch(points_stacked, classes=labels)
 
         if self.config.mode == "mean":
             inv_dist = 1.0 / (closest_dists + 1e-5)  # shape: [N', k]
@@ -1118,7 +1121,7 @@ class FieldTransformer(nn.Module):
         return retrieved_feat
 
 
-    def get_k_closest_points(self, query_pos, neural_pos):
+    def get_k_closest_points_deprecated(self, query_pos, neural_pos):
         # Gets the k closests points for each quesry point
         # Compute Euclidean distance between each pair of points
         dists = torch.cdist(query_pos, neural_pos)  # shape: [N', N]
@@ -1127,5 +1130,24 @@ class FieldTransformer(nn.Module):
         dist, indices = torch.topk(dists, self.config.knn, largest=False, sorted=True, dim=-1)  # shape: [N', k]
 
         # dummy data
-        # indices = torch.zeros(query_pos.shape[0], self.config.knn, dtype=torch.int64, device=query_pos.device)
+        # indices = torch.randint(low=0, high=neural_pos.shape[0]-1, size=(query_pos.shape[0], self.config.knn), dtype=torch.int64, device=query_pos.device)
+        # dist = None
         return indices, dist
+    
+    def get_k_closest_points(self, query_pos, neural_pos, batch_size=1024):
+        query_size = query_pos.size(0)
+        neural_size = neural_pos.size(0)
+        dtype = query_pos.dtype
+        device = query_pos.device
+        knn_distances = torch.zeros((query_size, self.config.knn), dtype=dtype, device=device)
+        knn_indices = torch.zeros((query_size, self.config.knn), dtype=torch.long, device=device)
+
+        for i in range(0, query_size, batch_size):
+            # get batch from QUERY_P
+            batch = query_pos[i:min(i + batch_size, query_size)]
+            distances = torch.cdist(batch, neural_pos)
+            knn = distances.topk(self.config.knn, dim=1, largest=False, sorted=True)
+            knn_distances[i:min(i + batch_size, query_size)] = knn.values
+            knn_indices[i:min(i + batch_size, query_size)] = knn.indices
+
+        return knn_indices, knn_distances
