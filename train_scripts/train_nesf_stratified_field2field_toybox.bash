@@ -8,16 +8,16 @@ conda activate nerfstudio2
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_100_270.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_500_270.json"
-# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_270.json"
-DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
+DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_270.json"
+# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
 
 
-# NP_SURFACE=True
-# Q_SURFACE=True
-# SAMPLES_PER_NP_RAY=24
-# SAMPLES_PER_QUERY_RAY=24
-# RAYS_NP=65536
-# RAYS_QUERY=32768
+NP_SURFACE=True
+Q_SURFACE=True
+SAMPLES_PER_NP_RAY=24
+SAMPLES_PER_QUERY_RAY=24
+RAYS_NP=65536
+RAYS_QUERY=32768
 
 # NP_SURFACE=True
 # Q_SURFACE=False
@@ -33,12 +33,12 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # RAYS_NP=24576
 # RAYS_QUERY=32768
 
-NP_SURFACE=False
-Q_SURFACE=False
-SAMPLES_PER_NP_RAY=8
-SAMPLES_PER_QUERY_RAY=8
-RAYS_NP=24576
-RAYS_QUERY=8192
+# NP_SURFACE=False
+# Q_SURFACE=False
+# SAMPLES_PER_NP_RAY=8
+# SAMPLES_PER_QUERY_RAY=8
+# RAYS_NP=24576
+# RAYS_QUERY=8192
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
@@ -91,7 +91,11 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.field2field_sampler.ground_points_count 500000 \
 	--pipeline.model.field2field_sampler.ground_tolerance 0.007 \
 	--pipeline.model.field2field_sampler.surface_threshold 0.5 \
-	--pipeline.model.field2field_sampler.max_points 24576 \
+	--pipeline.model.field2field_sampler.max_points 12288 \
+	--pipeline.model.field2field_config.knn 64 \
+	--pipeline.model.field2field_config.transformer.num_layers 3 \
+	--pipeline.model.field2field_config.transformer.num_heads 4 \
+	--pipeline.model.field2field_config.transformer.dim_feed_forward 128 \
 	--pipeline.model.field2field_config.mode "transformer" \
 	nesf-data \
 	--data-config $DATA_CONFIG 

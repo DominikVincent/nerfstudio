@@ -301,6 +301,7 @@ class NeuralSemanticFieldModel(Model):
             "Feature Transformer has", sum(p.numel() for p in self.feature_transformer.parameters()), "parameters"
         )
         CONSOLE.print("Decoder has", sum(p.numel() for p in self.decoder.parameters()), "parameters")
+        CONSOLE.print("Field Transformer has", sum(p.numel() for p in self.field_transformer.parameters()), "parameters")
         CONSOLE.print("The number of NeSF parameters is: ", total_params)
 
     def get_param_groups(self) -> Dict[str, List[Parameter]]:

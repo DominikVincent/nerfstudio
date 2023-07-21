@@ -1086,6 +1086,7 @@ class FieldTransformer(nn.Module):
         Returns:
             [N', C] tensor
         """
+        time1 = time.time()
         assert neural_feat.shape[0] == neural_pos.shape[0], "neural_feat and neural_pos must have the same count of points"
         CONSOLE.print("Querying ", query_pos.shape[0], "points in neural field of ", neural_pos.shape[0])
         closest_ind, closest_dists = self.get_k_closest_points(query_pos, neural_pos)  # shape: [N', k]
@@ -1097,7 +1098,8 @@ class FieldTransformer(nn.Module):
         # points_stacked = torch.cat([query_pos.unsqueeze(0), neural_pos.unsqueeze(0)], dim=1)
         # labels = torch.cat([torch.ones(1, query_pos.shape[0]), torch.zeros(1, neural_pos.shape[0])], dim=1).long()
         # visualize_point_batch(points_stacked, classes=labels)
-
+        time2 = time.time()
+        CONSOLE.print("FieldTransformer - prestep: ", time2 - time1)
         if self.config.mode == "mean":
             inv_dist = 1.0 / (closest_dists + 1e-5)  # shape: [N', k]
             weighted_features = closest_feat * inv_dist.unsqueeze(-1)  # shape: [N', k, C]
@@ -1112,7 +1114,11 @@ class FieldTransformer(nn.Module):
             # prepend the learnable query vector
             rel_pos_feat = torch.cat([rel_pos_feat, self.learnable_query_vector.unsqueeze(0).expand(rel_pos_feat.shape[0], -1, -1)], dim=1)  # shape: [N', k + 1, 3 + C]
             # apply the transformer
+            time3 = time.time()
             rel_pos_feat = self.transformer(rel_pos_feat, batch={})  # shape: [N', k + 1, C]
+            time4 = time.time()
+            CONSOLE.print("FieldTransformer - transformer: ", time4 - time3)
+            
             # get the features of the query points
             retrieved_feat = rel_pos_feat[:, 0, :]  # shape: [N', C]
 
