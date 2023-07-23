@@ -19,19 +19,19 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # RAYS_NP=65536
 # RAYS_QUERY=32768
 
-# NP_SURFACE=True
-# Q_SURFACE=False
-# SAMPLES_PER_NP_RAY=24
-# SAMPLES_PER_QUERY_RAY=8
-# RAYS_NP=65536
-# RAYS_QUERY=5120
+NP_SURFACE=True
+Q_SURFACE=False
+SAMPLES_PER_NP_RAY=24
+SAMPLES_PER_QUERY_RAY=8
+RAYS_NP=65536
+RAYS_QUERY=4096
 
-NP_SURFACE=False
-Q_SURFACE=True
-SAMPLES_PER_NP_RAY=8
-SAMPLES_PER_QUERY_RAY=24
-RAYS_NP=24576
-RAYS_QUERY=32768
+# NP_SURFACE=False
+# Q_SURFACE=True
+# SAMPLES_PER_NP_RAY=8
+# SAMPLES_PER_QUERY_RAY=24
+# RAYS_NP=24576
+# RAYS_QUERY=32768
 
 # NP_SURFACE=False
 # Q_SURFACE=False
@@ -91,11 +91,11 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.field2field_sampler.ground_points_count 500000 \
 	--pipeline.model.field2field_sampler.ground_tolerance 0.004 \
 	--pipeline.model.field2field_sampler.surface_threshold 0.5 \
-	--pipeline.model.field2field_sampler.max_points 12288 \
+	--pipeline.model.field2field_sampler.max_points 14016 \
 	--pipeline.model.field2field_config.knn 64 \
 	--pipeline.model.field2field_config.transformer.num_layers 3 \
 	--pipeline.model.field2field_config.transformer.num_heads 4 \
-	--pipeline.model.field2field_config.transformer.dim_feed_forward 96 \
+	--pipeline.model.field2field_config.transformer.dim_feed_forward 64 \
 	--pipeline.model.field2field_config.mode "transformer" \
 	nesf-data \
 	--data-config $DATA_CONFIG 

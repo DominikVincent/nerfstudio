@@ -2,15 +2,17 @@ import plotly.graph_objs as go
 import os
 from collections import defaultdict
 import plotly
+import time
 
-# title = "KLEVR mIoU of best Models"
-# run_values = {
-#     "Pointnet++": {"value": 0.752, "group": "group_1"},
-#     "Custom": {"value": 0.835, "group": "group_1"},
-#     "Stratified": {"value": 0.932, "group": "group_1"},
-#     "NeSF": {"value": 0.927, "group": "group_1"},
-#     "DeepLab": {"value": 0.971, "group": "group_1"},
-# }
+title = "KLEVR mIoU of best Models"
+run_values = {
+    "Pointnet++": {"value": 0.752, "group": "group_1"},
+    "Custom": {"value": 0.835, "group": "group_1"},
+    "Stratified": {"value": 0.932, "group": "group_1"},
+    "Stratified+Field Head": {"value": 0.928, "group": "group_1"},
+    "NeSF": {"value": 0.927, "group": "group_1"},
+    "DeepLab": {"value": 0.971, "group": "group_1"},
+}
 
 # Proximity Loss
 # title = "KLEVR Impact of Proximity Loss on mIoU"
@@ -42,20 +44,20 @@ import plotly
 # }
 
 # Klevr pretrain
-title="KLEVR Impact of Pretraining on mIoU, stratified transformer, 10 scenes"
-run_values = {
-    "scratch": {"value": 0.582, "group": "no pretrain"},
-    "s3dis": {"value": 0.5497, "group": "no pretrain"},
-    "rgb random p=0.5 custom decoder": {"value": 0.4709, "group": "pretrain"},
-    "rgb random p=0.75 custom decoder": {"value": 0.4835, "group": "pretrain"},
-    "normals": {"value": 0.6392, "group": "pretrain"},
-    "rgb patch-fp, p=0.5, k=100": {"value": 0.6462, "group": "pretrain"},
-    "rgb patch-fp, p=0.5, k=400": {"value": 0.6585, "group": "pretrain"},
-    "rgb patch-fp, p=0.5, k=100 custom decoder": {"value": 0.5807, "group": "pretrain"},
-    "rgb patch-fp, p=0.5, k=400 custom decoder": {"value": 0.5698, "group": "pretrain"},
-    "rgb patch, p=0.5, k=100": {"value": 0.5281, "group": "pretrain"},
-    "rgb patch, p=0.5, k=400": {"value": 0.5286, "group": "pretrain"},
-}   
+# title="KLEVR Impact of Pretraining on mIoU, stratified transformer, 10 scenes"
+# run_values = {
+#     "scratch": {"value": 0.582, "group": "no pretrain"},
+#     "s3dis": {"value": 0.5497, "group": "no pretrain"},
+#     "rgb random p=0.5 custom decoder": {"value": 0.4709, "group": "pretrain"},
+#     "rgb random p=0.75 custom decoder": {"value": 0.4835, "group": "pretrain"},
+#     "normals": {"value": 0.6392, "group": "pretrain"},
+#     "rgb patch-fp, p=0.5, k=100": {"value": 0.6462, "group": "pretrain"},
+#     "rgb patch-fp, p=0.5, k=400": {"value": 0.6585, "group": "pretrain"},
+#     "rgb patch-fp, p=0.5, k=100 custom decoder": {"value": 0.5807, "group": "pretrain"},
+#     "rgb patch-fp, p=0.5, k=400 custom decoder": {"value": 0.5698, "group": "pretrain"},
+#     "rgb patch, p=0.5, k=100": {"value": 0.5281, "group": "pretrain"},
+#     "rgb patch, p=0.5, k=400": {"value": 0.5286, "group": "pretrain"},
+# }   
 
 # Klevr Normal Eval
 # title = "KUBASIC-10 normal evaluation"
@@ -109,21 +111,21 @@ run_values = {
 # }
 
 # Toybox-5 impact of pretraining on mIoU 100 scenes 
-title = "Toybox-5 Impact of Pretraining on mIoU, stratified transformer, 100 scenes 10 images"
-run_values = {
-    "scratch": {"value": 0.7458, "group": "no pretrain"},
-    "scratch all parameters": {"value": 0.7058, "group": "no pretrain"},
-    "S3DIS pretrained all parameters": {"value": 0.7526, "group": "pretrained"},
-    "rgb random p=0.5": {"value": 0.6798, "group": "pretrained"},
-    "rgb random p=0.75": {"value": 0.6803, "group": "pretrained"},
-    "rgb patch p=0.5 k=100": {"value": 0.396, "group": "pretrained"},
-    "rgb patch p=0.5 k=400": {"value": 0.5496, "group": "pretrained"},
-    "normals": {"value": 0.7565, "group": "pretrained"},
-    "normals, rgb p=0.5": {"value": 0.627, "group": "pretrained"},
-    "normals, rgb p=0.0": {"value": 0.7321, "group": "pretrained"},
-    "normals, rgb patch-fp p=0.5, k=100": {"value": 0.709, "group": "pretrained"},
-    "density": {"value": 0.6117, "group": "pretrained"},
-}
+# title = "Toybox-5 Impact of Pretraining on mIoU, stratified transformer, 100 scenes 10 images"
+# run_values = {
+#     "scratch": {"value": 0.7458, "group": "no pretrain"},
+#     "scratch all parameters": {"value": 0.7058, "group": "no pretrain"},
+#     "S3DIS pretrained all parameters": {"value": 0.7526, "group": "pretrained"},
+#     "rgb random p=0.5": {"value": 0.6798, "group": "pretrained"},
+#     "rgb random p=0.75": {"value": 0.6803, "group": "pretrained"},
+#     "rgb patch p=0.5 k=100": {"value": 0.396, "group": "pretrained"},
+#     "rgb patch p=0.5 k=400": {"value": 0.5496, "group": "pretrained"},
+#     "normals": {"value": 0.7565, "group": "pretrained"},
+#     "normals, rgb p=0.5": {"value": 0.627, "group": "pretrained"},
+#     "normals, rgb p=0.0": {"value": 0.7321, "group": "pretrained"},
+#     "normals, rgb patch-fp p=0.5, k=100": {"value": 0.709, "group": "pretrained"},
+#     "density": {"value": 0.6117, "group": "pretrained"},
+# }
 
 
 show_legend = not all(run_data["group"] == next(iter(run_values.values()))["group"] for run_data in run_values.values())
@@ -188,5 +190,7 @@ if file_name in os.listdir(folder_path):
     file_name_pdf = "{}_{}.pdf".format(title, len(os.listdir(folder_path)))
 file_path = os.path.join(folder_path, file_name)
 file_path_pdf = os.path.join(folder_path, file_name_pdf)
+time.sleep(1)
 fig.write_image(file_path)
+time.sleep(1)
 fig.write_image(file_path_pdf)
