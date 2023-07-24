@@ -5,7 +5,9 @@ conda activate nerfstudio2
 
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_nesf_train_100.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/nesf_test_config_5.json"
-DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
+# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
+DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_500_270.json"
+
 
 RAYS=8192
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
@@ -23,17 +25,17 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.train-num-rays-per-batch $RAYS \
 	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
-	--pipeline.model.sampler.surface-sampling False \
-	--pipeline.model.sampler.samples-per-ray 8 \
+	--pipeline.model.sampler.surface-sampling True \
+	--pipeline.model.sampler.samples-per-ray 24 \
 	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500000 \
-	--pipeline.model.sampler.ground-tolerance 0.008 \
-	--pipeline.model.sampler.surface-threshold 0.2 \
+	--pipeline.model.sampler.ground-tolerance 0.004 \
+	--pipeline.model.sampler.surface-threshold 0.5 \
 	--pipeline.model.batching-mode "off" \
 	--pipeline.model.batch_size 16384 \
 	--pipeline.model.mode semantics \
-	--pipeline.model.proximity-loss False \
+	--pipeline.model.proximity-loss True \
 	--pipeline.model.feature-generator-config.jitter 0.000 \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
@@ -49,6 +51,5 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-model "pointnet" \
 	--pipeline.model.feature-transformer-pointnet-config.out_feature_channels 64 \
 	--pipeline.model.feature-transformer-pointnet-config.radius_scale 0.2 \
-	--wandb-project-name "klevr-results" \
 	nesf-data \
 	--data-config $DATA_CONFIG 

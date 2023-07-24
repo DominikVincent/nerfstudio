@@ -12,9 +12,9 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
 
 # RAYS=131072
-RAYS=65536
+# RAYS=65536
 # RAYS=40960
-# RAYS=32768
+RAYS=32768
 # RAYS=16384
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \

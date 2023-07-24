@@ -10,8 +10,9 @@ conda activate nerfstudio2
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_100_270.json"
 DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_500_270.json"
 
+RAYS=32768
 # RAYS=24576
-RAYS=16384
+# RAYS=16384
 # RAYS=8192
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
@@ -30,13 +31,14 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
 	--pipeline.model.sampler.surface-sampling True \
-	--pipeline.model.sampler.samples-per-ray 16 \
+	--pipeline.model.sampler.samples-per-ray 24 \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
-	--pipeline.model.sampler.ground-points-count 500 \
-	--pipeline.model.sampler.ground-tolerance 0.01 \
-	--pipeline.model.batching-mode "off" \
-	--pipeline.model.batch_size 3072 \
+	--pipeline.model.sampler.ground-points-count 50000000 \
+	--pipeline.model.sampler.ground-tolerance 0.008 \
+	--pipeline.model.batching-mode "sliced" \
+	--pipeline.model.batch_size 2048 \
 	--pipeline.model.mode semantics \
+	--pipeline.model.proximity-loss True \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
 	--pipeline.model.feature-generator-config.use-dir-encoding True \
