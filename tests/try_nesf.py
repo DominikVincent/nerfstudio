@@ -73,6 +73,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.steps_per_eval_image = 3
     trainConfig.steps_per_eval_all_images = 100000000
     trainConfig.max_num_iterations = 10000000
+    # trainConfig.load_config = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-07-21_103257_286997/auto_eval_config.yml")
     
     trainConfig.pipeline.datamanager.use_sample_mask = False
     trainConfig.pipeline.datamanager.sample_mask_ground_percentage = 1
@@ -82,13 +83,13 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.eval_num_images_to_sample_from = 8
     trainConfig.pipeline.datamanager.eval_num_times_to_repeat_images = 1
     
-    trainConfig.pipeline.model.pretrain = False
+    trainConfig.pipeline.model.pretrain = True
     trainConfig.pipeline.model.only_last_layer = False
     trainConfig.pipeline.model.mode = "semantics"
     trainConfig.pipeline.model.batching_mode = "off"
     trainConfig.pipeline.model.batch_size = 2048
     trainConfig.pipeline.model.proximity_loss = True
-    trainConfig.pipeline.model.feature_generator_config.rot_augmentation = True
+    trainConfig.pipeline.model.feature_generator_config.rot_augmentation = False
     trainConfig.pipeline.model.feature_generator_config.jitter = 0.001
     
     trainConfig.pipeline.model.sampler.surface_sampling = True

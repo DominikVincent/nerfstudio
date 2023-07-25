@@ -422,9 +422,11 @@ class NeuralSemanticFieldModel(Model):
         time2 = time.time()
         # potentially batch up and infuse field outputs with random points
         field_outputs_raw, transform_batch = self.batching(ray_samples, field_outputs_raw)
+        visualize_rgb_point_cloud(transform_batch["points_xyz"], field_outputs_raw[FieldHeadNames.RGB])
         time3 = time.time()
         # TODO return the transformed points
         outs, transform_batch = self.feature_model(field_outputs_raw, transform_batch)  # 1, low_dense, 49t
+        transform_batch["rgb"] = field_outputs_raw[FieldHeadNames.RGB]
         # assert outs is not nan or not inf
         assert not torch.isnan(outs).any()
         assert not torch.isinf(outs).any()
@@ -513,6 +515,11 @@ class NeuralSemanticFieldModel(Model):
 
             CONSOLE.print("Forward - feature transformer: ", time6 - time4)
             CONSOLE.print("Forward - head: ", time7 - time6)
+
+
+
+        field_outputs_labels = torch.argmax(field_outputs_dict["semantics"], dim=-1)
+        visualize_point_batch(transform_batch["points_xyz"], classes=field_outputs_labels)
 
         time11 = time.time()
         # unbatch the data

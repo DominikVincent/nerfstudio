@@ -159,6 +159,59 @@ def spatial_sliced_batching(ray_samples: RaySamples, field_outputs: dict, batch_
 
     return field_outputs, masking, ids_shuffle, ids_restore, points_padded, directions_padded
 
+def visualize_rgb_point_cloud(points: torch.Tensor, colors: torch.Tensor):
+    points = points.reshape(-1, 3).to("cpu").numpy()
+    colors = colors.reshape(-1, 3).to("cpu").numpy()
+
+    scatter = go.Scatter3d(
+        x=points[:, 0],
+        y=points[:, 1],
+        z=points[:, 2],
+        mode="markers",
+        marker=dict(color=colors, size=3, opacity=0.8),
+    )
+    data = [scatter]
+    # create a layout with axes labels
+    layout = go.Layout(
+        scene=dict(
+            xaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+            yaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+            zaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+            aspectmode="data"),
+    )
+    fig = go.Figure(data=data, layout=layout)
+    fig.update_layout(template='simple_white')
+    fig.show()
+
+
+def visualize_rgb_point_cloud_masked(points: torch.Tensor, colors: torch.Tensor, points_masked):
+    points = points.reshape(-1, 3).to("cpu").numpy()
+    colors = colors.reshape(-1, 3).to("cpu").numpy()
+    points_masked = points_masked.reshape(-1, 3).to("cpu").numpy()
+    colors_masked = np.zeros_like(colors)
+
+    points = np.concatenate((points, points_masked), axis=0)
+    colors = np.concatenate((colors, colors_masked), axis=0)
+
+    scatter = go.Scatter3d(
+        x=points[:, 0],
+        y=points[:, 1],
+        z=points[:, 2],
+        mode="markers",
+        marker=dict(color=colors, size=3, opacity=0.8),
+    )
+    data = [scatter]
+    # create a layout with axes labels
+    layout = go.Layout(
+        scene=dict(
+            xaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+            yaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+            zaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+            aspectmode="data"),
+    )
+    fig = go.Figure(data=data, layout=layout)
+    fig.update_layout(template='simple_white')
+    fig.show()
 
 def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, torch.Tensor] = None, normals: torch.Tensor = None, classes: torch.Tensor = None):
     CONSOLE.print("Visualizing point batch")
@@ -206,14 +259,22 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
         y=points[:, 1],
         z=points[:, 2],
         mode="markers",
-        marker=dict(color=colors, size=1, opacity=0.8),
+        marker=dict(color=colors, size=3, opacity=0.8),
     )
     data = [scatter]
     # create a layout with axes labels
+    # layout = go.Layout(
+    #     title=f"RGB points: {points_pad.shape}",
+    #     scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"), aspectmode="data"),
+    # )
     layout = go.Layout(
         title=f"RGB points: {points_pad.shape}",
-        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"), aspectmode="data"),
-    )
+        scene=dict(
+            xaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+            yaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+            zaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''), 
+            aspectmode="data"),
+        )
     if normals is not None:
         # calculate end points for each line
         endpoints = points + normals
@@ -225,6 +286,8 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
         normals = go.Scatter3d(x=x, y=y, z=z, mode='lines')
         data.append(normals)
     fig = go.Figure(data=data, layout=layout)
+    fig.update_layout(template='simple_white')
+
     # if normals is not None:
     #     fig.add_trace(
     #         go.Cone(

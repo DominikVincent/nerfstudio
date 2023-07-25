@@ -28,6 +28,8 @@ from nerfstudio.utils.nesf_utils import (
     log_points_to_wandb,
     visualize_point_batch,
     visualize_points,
+    visualize_rgb_point_cloud,
+    visualize_rgb_point_cloud_masked
 )
 
 CONSOLE = Console(width=120)
@@ -111,6 +113,8 @@ class SceneSampler:
 
         else:
             raise NotImplementedError("Only NerfactoModel is supported for now")
+
+        # visualize_rgb_point_cloud(ray_samples.frustums.get_positions(), field_outputs[FieldHeadNames.RGB])
 
         time2 = time.time()
         if self.config.surface_sampling:
@@ -381,7 +385,9 @@ class Masker(nn.Module):
         
         batch["points_xyz_all"] = batch["points_xyz"]
         batch["points_xyz"] = torch.gather(batch["points_xyz"], dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, 3))
+        rgb_keep = torch.gather(batch["rgb"], dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, 3))
         batch["points_xyz_masked"] = torch.gather(batch["points_xyz_all"], dim=1, index=ids_mask.unsqueeze(-1).repeat(1, 1, 3))
+        rgb_masked = torch.gather(batch["rgb"], dim=1, index=ids_mask.unsqueeze(-1).repeat(1, 1, 3))
         if "src_key_padding_mask" in batch and batch["src_key_padding_mask"] is not None:
             batch["src_key_padding_mask_orig"] = batch["src_key_padding_mask"]
             batch["src_key_padding_mask"] = torch.gather(batch["src_key_padding_mask"], dim=1, index=ids_keep)
@@ -394,6 +400,7 @@ class Masker(nn.Module):
         x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
 
         if self.config.visualize_masking:
+            # visualize_rgb_point_cloud_masked(batch["points_xyz"], rgb_keep, batch["points_xyz_masked"])
             points_stack = torch.cat([batch["points_xyz"], batch["points_xyz_masked"]], dim=1)
             labels = torch.cat([torch.ones((N, len_keep)), torch.zeros((N, L - len_keep))], dim=1).long()
             visualize_point_batch(points_stack, classes=labels)

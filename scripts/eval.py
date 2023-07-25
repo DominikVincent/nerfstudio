@@ -53,8 +53,8 @@ class ComputePSNR:
                 save_path=self.output_path.parent, log_to_wandb=self.use_wandb, miou_3d=False
             )
         else:
-            metrics_3d_dict = pipeline.get_average_eval_image_metrics(log_to_wandb=self.use_wandb, miou_3d=True)
             metrics_dict = pipeline.get_average_eval_image_metrics(log_to_wandb=self.use_wandb, miou_3d=False)
+            metrics_3d_dict = pipeline.get_average_eval_image_metrics(log_to_wandb=self.use_wandb, miou_3d=True)
 
         # log the final results
         writer.put_dict("test", metrics_dict, step=1000000)
