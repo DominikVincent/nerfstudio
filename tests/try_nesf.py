@@ -83,7 +83,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.eval_num_images_to_sample_from = 8
     trainConfig.pipeline.datamanager.eval_num_times_to_repeat_images = 1
     
-    trainConfig.pipeline.model.pretrain = True
+    trainConfig.pipeline.model.pretrain = False
     trainConfig.pipeline.model.only_last_layer = False
     trainConfig.pipeline.model.mode = "semantics"
     trainConfig.pipeline.model.batching_mode = "off"
@@ -92,22 +92,23 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.feature_generator_config.rot_augmentation = False
     trainConfig.pipeline.model.feature_generator_config.jitter = 0.001
     
-    trainConfig.pipeline.model.sampler.surface_sampling = True
+    trainConfig.pipeline.model.sampler.surface_sampling = False
     trainConfig.pipeline.model.sampler.get_normals = True
     trainConfig.pipeline.model.sampler.samples_per_ray = 24
     trainConfig.pipeline.model.sampler.ground_removal_mode = "ransac"
     trainConfig.pipeline.model.sampler.ground_tolerance = 0.008
     trainConfig.pipeline.model.sampler.surface_threshold = 0.5
     trainConfig.pipeline.model.sampler.ground_points_count = 1000000
+    trainConfig.pipeline.model.sampler.max_points = 16834
     
     trainConfig.pipeline.model.masker_config.mode = "patch_fp"
     trainConfig.pipeline.model.masker_config.mask_ratio = 0.5
-    trainConfig.pipeline.model.masker_config.visualize_masking = True
+    trainConfig.pipeline.model.masker_config.visualize_masking = False
     trainConfig.pipeline.model.masker_config.num_patches = 100
     trainConfig.pipeline.model.rgb_prediction = "integration"
     trainConfig.pipeline.model.density_prediction = "direct"
 
-    trainConfig.pipeline.model.use_field2field = True
+    trainConfig.pipeline.model.use_field2field = False
     trainConfig.pipeline.model.field2field_sampler.surface_sampling = True
     trainConfig.pipeline.model.field2field_sampler.samples_per_ray = 24
     trainConfig.pipeline.model.field2field_sampler.ground_tolerance = 0.008

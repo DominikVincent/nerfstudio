@@ -472,6 +472,18 @@ class NeuralSemanticFieldModel(Model):
             field_encodings = self.feature_transformer(outs, batch=transform_batch)
             time6 = time.time()
 
+            # timing code
+            # total_time = 0
+            # repetitions = 10
+            # for _ in range(repetitions):
+            #     with torch.no_grad():
+            #         starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+            #         starter.record()
+            #         field_encodings = self.feature_transformer(outs, batch=transform_batch)
+            #         ender.record()
+            #         curr_time = starter.elapsed_time(ender)/1000
+            #         total_time += curr_time
+            # CONSOLE.print("CUDA: Forward - feature transformer: ", total_time/repetitions)
             if self.config.use_field2field:
                 assert self.config.pretrain is False
                 assert self.config.batching_mode == "off"
