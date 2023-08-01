@@ -5,58 +5,72 @@ import plotly
 import time
 
 title = "KLEVR mIoU of best Models"
+# run_values = {
+#     "Pointnet++": {"value": 75.2, "group": "group_1"},
+#     "Custom": {"value": 83.5, "group": "group_1"},
+#     "Stratified (S3DIS)": {"value": 93.2, "group": "group_1"},
+#     "Stratified (S3DIS) + Field Head": {"value": 92.8, "group": "group_1"},
+#     "NeSF": {"value": 92.7, "group": "group_1"},
+#     "DeepLab": {"value": 97.1, "group": "group_1"},
+# }
+
+# run_values = {
+#     "Ours: SPT\uFE61": {"value": 93.2, "group": "group_1"},
+#     "Ours: SPT\uFE61 + Field Head": {"value": 92.8, "group": "group_1"},
+#     "NeSF": {"value": 92.7, "group": "group_1"},
+#     "DeepLab": {"value": 97.1, "group": "group_1"},
+# }
+
 run_values = {
-    "Pointnet++": {"value": 0.752, "group": "group_1"},
-    "Custom": {"value": 0.835, "group": "group_1"},
-    "Stratified": {"value": 0.932, "group": "group_1"},
-    "Stratified+Field Head": {"value": 0.928, "group": "group_1"},
-    "NeSF": {"value": 0.927, "group": "group_1"},
-    "DeepLab": {"value": 0.971, "group": "group_1"},
+    "Ours: PointNet++": {"value": 75.2, "group": "group_1"},
+    "Ours: Custom": {"value": 83.5, "group": "group_1"},
+    "Ours: SPT\uFE61": {"value": 93.2, "group": "group_1"},
+    "NeSF": {"value": 92.7, "group": "group_1"},
+    "DeepLab": {"value": 97.1, "group": "group_1"},
 }
+
 
 # Proximity Loss
 # title = "KLEVR Impact of Proximity Loss on mIoU"
 # run_values = {
-#     "Pointnet++": {"value": 0.752, "group": "proximity loss"},
-#     "Pointnet++ ": {"value": 0.655, "group": "no proximity loss"},
-#     "Custom": {"value": 0.806, "group": "proximity loss"},
-#     "Custom ": {"value": 0.797, "group": "no proximity loss"},
-#     "Stratified": {"value": 0.887, "group": "proximity loss"},
-#     "Stratified ": {"value": 0.88, "group": "no proximity loss"},
+#     "Pointnet++": {"value": 75.2, "group": "proximity loss"},
+#     "Pointnet++*": {"value": 65.5, "group": "no proximity loss"},
+#     "Custom": {"value": 80.6, "group": "proximity loss"},
+#     "Custom*": {"value": 79.7, "group": "no proximity loss"},
+#     "Stratified": {"value": 88.7, "group": "proximity loss"},
+#     "Stratified*": {"value": 88, "group": "no proximity loss"},
 # }
 
 # ground removal
 # title = "KLEVR Impact of Ground Removal on mIoU"
 # run_values = {
-#     "Pointnet++": {"value": 0.752, "group": "ground removal"},
-#     "Pointnet++ ": {"value": 0.42, "group": "no ground removal"},
-#     "Stratified": {"value": 0.887, "group": "ground removal"},
-#     "Stratified ": {"value": 0.813, "group": "no ground removal"},
+#     "Pointnet++": {"value": 75.2, "group": "ground removal"},
+#     "Pointnet++*": {"value": 42., "group": "no ground removal"},
+#     "Stratified": {"value": 88.7, "group": "ground removal"},
+#     "Stratified*": {"value": 81.3, "group": "no ground removal"},
 # }
 
 # Klevr no surface sampling 8 samples
 # title = "KLEVR Impact of Surface Sampling on mIoU"
 # run_values = {
-    # "Pointnet++": {"value": 0.655, "group": "surface sampling"}, #no proxmiity loss
-    # "Pointnet++*": {"value": 5404, "group": "no surface sampling"},
-    # "Stratified": {"value": 0.88, "group": "surface sampling"}, # no proximity no pretrained
-    # "Stratified*": {"value": 0.8873, "group": "no surface sampling"},
+#     "Pointnet++": {"value": 65.5, "group": "surface sampling"}, #no proxmiity loss
+#     "Pointnet++*": {"value": 54.04, "group": "no surface sampling"},
+#     "Stratified": {"value": 88., "group": "surface sampling"}, # no proximity no pretrained
+#     "Stratified*": {"value": 88.73, "group": "no surface sampling"},
 # }
 
 # Klevr pretrain
-# title="KLEVR Impact of Pretraining on mIoU, stratified transformer, 10 scenes"
+# title="KLEVR Impact of Pretraining on mIoU, 10 scenes"
 # run_values = {
-#     "scratch": {"value": 0.582, "group": "no pretrain"},
-#     "s3dis": {"value": 0.5497, "group": "no pretrain"},
-#     "rgb random p=0.5 custom decoder": {"value": 0.4709, "group": "pretrain"},
-#     "rgb random p=0.75 custom decoder": {"value": 0.4835, "group": "pretrain"},
-#     "normals": {"value": 0.6392, "group": "pretrain"},
-#     "rgb patch-fp, p=0.5, k=100": {"value": 0.6462, "group": "pretrain"},
-#     "rgb patch-fp, p=0.5, k=400": {"value": 0.6585, "group": "pretrain"},
-#     "rgb patch-fp, p=0.5, k=100 custom decoder": {"value": 0.5807, "group": "pretrain"},
-#     "rgb patch-fp, p=0.5, k=400 custom decoder": {"value": 0.5698, "group": "pretrain"},
-#     "rgb patch, p=0.5, k=100": {"value": 0.5281, "group": "pretrain"},
-#     "rgb patch, p=0.5, k=400": {"value": 0.5286, "group": "pretrain"},
+#     "scratch": {"value": 54.0, "group": "no pretrain"},
+#     "s3dis": {"value": 66.9, "group": "pretrained"},
+#     "rgb random p=0.5": {"value": 66.6, "group": "pretrained"},
+#     "rgb random p=0.75": {"value": 48.4, "group": "pretrained"},
+#     "rgb patch, p=0.5, k=100": {"value": 68.2, "group": "pretrained"},
+#     "rgb patch, p=0.5, k=400": {"value": 68.1, "group": "pretrained"},
+#     "rgb patch-fp, p=0.5, k=400": {"value": 67.7, "group": "pretrained"},
+#     "normals+rgb patch-fp, p=0.5, k=400": {"value": 74.6, "group": "pretrained"},
+#     "normals": {"value": 76.1, "group": "pretrained"},
 # }   
 
 # Klevr Normal Eval
@@ -69,9 +83,26 @@ run_values = {
 # Toybox-5 best models
 # title = "Toybox-5 mIoU of best Models"
 # run_values = {
-#     "NeSF": {"value": 0.817, "group": "*"},
-#     "Deep Lab": {"value": 0.816, "group": "*"},
-#     "Stratified": {"value": 0.810, "group": "*"},
+#     "Pointnet++": {"value": 63.0, "group" :"group_1"}, 
+#     "Custom": {"value": 69.94, "group": "group_1"},
+#     "Stratified (S3DIS)": {"value": 83.7, "group": "group_1"},
+#     "Stratified (S3DIS) + Field Head": {"value": 80.7, "group": "group_1"},
+#     "NeSF": {"value": 81.7, "group": "group_1"},
+#     "Deep Lab": {"value": 81.6, "group": "group_1"},
+# }
+# run_values = {
+#     "Ours: SPT\uFE61": {"value": 83.7, "group": "group_1"},
+#     "Ours: SPT\uFE61 + Field Head": {"value": 80.7, "group": "group_1"},
+#     "NeSF": {"value": 81.7, "group": "group_1"},
+#     "Deep Lab": {"value": 81.6, "group": "group_1"},
+# }
+
+# run_values = {
+#     "Ours: PointNet++": {"value": 63.0, "group": "group_1"},
+#     "Ours: Custom": {"value": 69.94, "group": "group_1"},
+#     "Ours: SPT\uFE61": {"value": 83.7, "group": "group_1"},
+#     "NeSF": {"value": 81.7, "group": "group_1"},
+#     "Deep Lab": {"value": 81.6, "group": "group_1"},
 # }
 
 # Toybox-5
@@ -94,37 +125,31 @@ run_values = {
 # }
 
 # Toybox-5 impact of pretraining on mIoU 100 scenes 270 images
-# title = "Toybox-5 Impact of Pretraining on mIoU, stratified transformer, 100 scenes 270 images"
+# title = "Toybox5 Impact of Pretraining on mIoU, 100 scenes 270 images"
 # run_values = {
-#     "scratch all parameters": {"value": 0.750, "group": "no pretrain"},
-#     "scratch subset": {"value": 0.7263, "group": "no pretrain"},
-#     "S3DIS pretrained all parameters": {"value": 0.7742, "group": "pretrained"},
-#     "rgb random p=0.5": {"value": 0.7131, "group": "pretrained"},
-#     "rgb random p=0.75": {"value": 0.7013, "group": "pretrained"},
-#     "rgb patch p=0.5 k=100": {"value": 0.4112, "group": "pretrained"}, 
-#     "rgb patch p=0.5 k=400": {"value": 0.6224, "group": "pretrained"},
-#     "normals": {"value": 0.7267, "group": "pretrained"},
-#     "normals, rgb p=0.5": {"value": 0.6271, "group": "pretrained"},
-#     "normals, rgb p=0.0": {"value": 0.7267, "group": "pretrained"},
-#     "normals, rgb patch-fp p=0.5, k=100": {"value": 0.7041, "group": "pretrained"},
-#     "density": {"value": 0.6521, "group": "pretrained"},
+#     "scratch": {"value": 75.4, "group": "no pretrain"},
+#     "S3DIS": {"value": 76.82, "group": "pretrained"},
+#     "rgb random p=0.5": {"value": 65.63, "group": "pretrained"},
+#     "rgb random p=0.75": {"value": 66.62, "group": "pretrained"},
+#     "rgb patch p=0.5 k=100": {"value": 68.08, "group": "pretrained"}, 
+#     "rgb patch p=0.5 k=400": {"value": 64.21, "group": "pretrained"},
+#     "rgb patch-fp p=0.5 k=400": {"value": 63.78, "group": "pretrained"},
+#     "normals+rgb patch-fp p=0.5 k=400": {"value": 75.11, "group": "pretrained"},
+#     "normals": {"value": 75.96, "group": "pretrained"},
 # }
 
-# Toybox-5 impact of pretraining on mIoU 100 scenes 
-# title = "Toybox-5 Impact of Pretraining on mIoU, stratified transformer, 100 scenes 10 images"
+# Toybox5 impact of pretraining on mIoU 100 scenes 10 images
+# title = "Toybox5 Impact of Pretraining on mIoU, 100 scenes 10 images"
 # run_values = {
-#     "scratch": {"value": 0.7458, "group": "no pretrain"},
-#     "scratch all parameters": {"value": 0.7058, "group": "no pretrain"},
-#     "S3DIS pretrained all parameters": {"value": 0.7526, "group": "pretrained"},
-#     "rgb random p=0.5": {"value": 0.6798, "group": "pretrained"},
-#     "rgb random p=0.75": {"value": 0.6803, "group": "pretrained"},
-#     "rgb patch p=0.5 k=100": {"value": 0.396, "group": "pretrained"},
-#     "rgb patch p=0.5 k=400": {"value": 0.5496, "group": "pretrained"},
-#     "normals": {"value": 0.7565, "group": "pretrained"},
-#     "normals, rgb p=0.5": {"value": 0.627, "group": "pretrained"},
-#     "normals, rgb p=0.0": {"value": 0.7321, "group": "pretrained"},
-#     "normals, rgb patch-fp p=0.5, k=100": {"value": 0.709, "group": "pretrained"},
-#     "density": {"value": 0.6117, "group": "pretrained"},
+#     "scratch": {"value": 74.58, "group": "no pretrain"},
+#     "S3DIS pretrained all parameters": {"value": 75.26, "group": "pretrained"},
+#     "rgb random p=0.5": {"value": 66.04, "group": "pretrained"},
+#     "rgb random p=0.75": {"value": 64.27, "group": "pretrained"},
+#     "rgb patch p=0.5 k=100": {"value": 65.61, "group": "pretrained"},
+#     "rgb patch p=0.5 k=400": {"value": 64.22, "group": "pretrained"},
+#     "rgb patch-fp p=0.5 k=400": {"value": 65.63, "group": "pretrained"},
+#     "normals+rgb patch-fp p=0.5 k=400": {"value": (73.96+75.24)/2, "group": "pretrained"},
+#     "normals": {"value": 75.29, "group": "pretrained"},
 # }
 
 
@@ -144,7 +169,7 @@ data = []
 # colors = ["blue", "red", "green", "orange", "purple", "yellow"]
 colors = plotly.colors.qualitative.Plotly
 for i, (group, values) in enumerate(group_data.items()):
-    text = ["{:.3f}".format(y) for y in values["y"]]
+    text = ["{:.1f}".format(y) for y in values["y"]]
 
     data.append(
         go.Bar(
@@ -154,7 +179,7 @@ for i, (group, values) in enumerate(group_data.items()):
             text=text,
             textposition="auto",
             textfont=dict(size=124),
-            hovertemplate="%{y:.3f}",
+            hovertemplate="%{y:.1f}",
             marker=dict(color=colors[i % len(colors)]),
         )
     )
@@ -164,11 +189,11 @@ layout = go.Layout(
     xaxis=dict(
         title=x_axis_label, 
         categoryorder='array', 
-        categoryarray=list(run_values.keys())  # Preserving the order of runs here
+        categoryarray=[run_value for run_value in run_values.keys() if "*" not in run_value ]  # Preserving the order of runs here
     ),
-    yaxis=dict(title=y_axis_label, range=[0, 1]),
-    font=dict(family="Arial", size=72),
-    margin=dict(l=50, r=50, b=50, t=200, pad=4),
+    yaxis=dict(title=y_axis_label, range=[0, 100]),
+    font=dict(family="Arial", size=110),
+    margin=dict(l=50, r=50, b=50, t=240, pad=4),
     barmode="group",
     showlegend=show_legend,
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
