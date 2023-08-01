@@ -355,7 +355,7 @@ class NesfPipeline(Pipeline):
                 
             if log_to_wandb:
                 # normalize confusion matrix
-                # confusion_matrix = confusion_matrix / confusion_matrix.sum(axis=1, keepdims=True)
+                confusion_matrix = confusion_matrix / confusion_matrix.sum(axis=1, keepdims=True)
                 fig = ff.create_annotated_heatmap(confusion_matrix, x=self.model.semantics.classes, y=self.model.semantics.classes)
                 fig.update_layout(title="Confusion matrix", xaxis_title="Predicted", yaxis_title="Actual")
                 wandb.log(
