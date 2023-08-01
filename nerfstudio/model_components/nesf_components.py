@@ -529,6 +529,12 @@ class FeatureGeneratorTorchConfig(InstantiateConfig):
     jitter: float = 0.0
     """How much jitter should be used in the augmentation?"""
 
+    jitter_clip: float = 10000.0
+    """At what value the jitter should be clipped."""
+
+    random_scale: float = 1.0
+    """random scaling down of the point cloud. 1.0 means no scaling, 0.5 means all points are getting scaled by 0.5 down. Can't be bigger than 1.0"""
+
     visualize_point_batch: bool = False
     """Visualize the points of the batch? Useful for debugging"""
 
@@ -680,7 +686,10 @@ class FeatureGeneratorTorch(nn.Module):
             # positions = torch.clamp(positions, self.aabb[0], self.aabb[1])
             
         if self.config.jitter != 0.0 and self.training:
-            positions = positions + torch.randn_like(positions) * self.config.jitter
+            jitter = torch.randn_like(positions) * self.config.jitter
+            # clip the jitter
+            jitter = torch.clamp(jitter, -self.config.jitter_clip, self.config.jitter_clip)
+            positions = positions + jitter
             
         time5 = time.time()
         positions = self.normalize_positions(positions)            
@@ -689,6 +698,13 @@ class FeatureGeneratorTorch(nn.Module):
         positions = cast(TensorType, positions)
         # The positions need to be in [0,1] for the positional encoding
         positions_normalized = SceneBox.get_normalized_positions(positions, self.aabb)
+
+        if self.config.random_scale != 1.0 and self.training:
+            scale = torch.rand(1, device=device) * (1.0 - self.config.random_scale) + self.config.random_scale
+            positions_normalized = positions_normalized * scale
+            assert torch.all(positions_normalized >= 0.0)
+            assert torch.all(positions_normalized <= 1.0)
+        
         transform_batch["points_xyz"] = positions_normalized
 
         # assert that the points are between 0 and 1

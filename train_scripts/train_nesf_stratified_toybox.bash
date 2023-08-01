@@ -38,13 +38,15 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
 	--pipeline.model.sampler.ground-points-count 500000 \
-	--pipeline.model.sampler.ground-tolerance 0.008 \
+	--pipeline.model.sampler.ground-tolerance 0.005 \
 	--pipeline.model.sampler.surface-threshold 0.5 \
 	--pipeline.model.batching-mode "off" \
 	--pipeline.model.batch_size 16384 \
 	--pipeline.model.mode semantics \
 	--pipeline.model.proximity-loss True \
-	--pipeline.model.feature-generator-config.jitter 0.000 \
+	--pipeline.model.feature-generator-config.jitter 0.0000 \
+	--pipeline.model.feature-generator-config.jitter-clip 0.001 \
+	--pipeline.model.feature-generator-config.random_scale 1.0 \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
 	--pipeline.model.feature-generator-config.use-dir-encoding True \
@@ -58,7 +60,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.space-partitioning "random" \
 	--pipeline.model.feature-transformer-model "stratified" \
 	--pipeline.model.feature-transformer-stratified-config.grid_size 0.005 \
-	--pipeline.model.feature-transformer-stratified-config.quant_size 0.0001 \
+	--pipeline.model.feature-transformer-stratified-config.quant_size 0.001 \
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
 	--pipeline.model.feature-transformer-stratified-config.load_dir "/data/vision/polina/projects/wmh/dhollidt/documents/Stratified-Transformer/weights/s3dis_model_best.pth" \
 	nesf-data \
