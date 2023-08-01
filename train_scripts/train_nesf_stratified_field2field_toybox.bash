@@ -12,12 +12,12 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
 
 
-# NP_SURFACE=True
-# Q_SURFACE=True
-# SAMPLES_PER_NP_RAY=24
-# SAMPLES_PER_QUERY_RAY=24
-# RAYS_NP=65536
-# RAYS_QUERY=32768
+NP_SURFACE=True
+Q_SURFACE=True
+SAMPLES_PER_NP_RAY=24
+SAMPLES_PER_QUERY_RAY=24
+RAYS_NP=65536
+RAYS_QUERY=32768
 
 # NP_SURFACE=True
 # Q_SURFACE=False
@@ -33,12 +33,12 @@ DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybo
 # RAYS_NP=24576
 # RAYS_QUERY=32768
 
-NP_SURFACE=False
-Q_SURFACE=False
-SAMPLES_PER_NP_RAY=8
-SAMPLES_PER_QUERY_RAY=8
-RAYS_NP=24576
-RAYS_QUERY=4096
+# NP_SURFACE=False
+# Q_SURFACE=False
+# SAMPLES_PER_NP_RAY=8
+# SAMPLES_PER_QUERY_RAY=8
+# RAYS_NP=24576
+# RAYS_QUERY=4096
 
 ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf/0  \
 	--output-dir /data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/ \
@@ -81,7 +81,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.space-partitioning "random" \
 	--pipeline.model.feature-transformer-model "stratified" \
 	--pipeline.model.feature-transformer-stratified-config.grid_size 0.005 \
-	--pipeline.model.feature-transformer-stratified-config.quant_size 0.0001 \
+	--pipeline.model.feature-transformer-stratified-config.quant_size 0.001 \
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
 	--pipeline.model.feature-transformer-stratified-config.load_dir "/data/vision/polina/projects/wmh/dhollidt/documents/Stratified-Transformer/weights/s3dis_model_best.pth" \
 	--pipeline.model.use_field2field True \

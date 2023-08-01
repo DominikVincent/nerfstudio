@@ -417,6 +417,31 @@ class NeuralSemanticFieldModel(Model):
         
         return field_encodings, transform_batch["points_xyz_orig"] 
     
+    def rot_augmentation(self, query_points, neural_points):
+        angles_np = np.random.uniform(0, 2 * np.pi, size=(1,)).astype('f')
+        angles = torch.from_numpy(angles_np)
+        
+        # Construct the rotation matrices from the random angles.
+        zeros = torch.zeros_like(angles)
+        ones = torch.ones_like(angles)
+        c = torch.cos(angles)
+        s = torch.sin(angles)
+        
+        
+        rot_matrix = torch.stack(
+            [
+                torch.stack([c, -s, zeros], dim=-1),
+                torch.stack([s, c, zeros], dim=-1),
+                torch.stack([zeros, zeros, ones], dim=-1),
+            ],
+            dim=-2,
+        ).to(query_points.device).squeeze(0)
+
+        query_points = torch.matmul(query_points, rot_matrix)
+        neural_points = torch.matmul(neural_points, rot_matrix)
+        return query_points, neural_points
+
+
     @profiler.time_function
     def get_outputs(self, ray_bundle: RayBundle, batch: Union[Dict[str, Any], None] = None):
         model: Model = self.get_model(batch)
@@ -442,6 +467,8 @@ class NeuralSemanticFieldModel(Model):
         all_samples_count = density_mask.shape[0]*density_mask.shape[1]
         query_points = ray_samples.frustums.get_positions()
         query_points = query_points.reshape(-1, 3)
+        if self.training and self.feature_model.config.rot_augmentation:
+            query_points, neural_points = self.rot_augmentation(query_points, neural_points)
         field_encodings = self.field_transformer(query_points, neural_features, neural_points)
         field_encodings = field_encodings.unsqueeze(0)
         time4 = time.time()
