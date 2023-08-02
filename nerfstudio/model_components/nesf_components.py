@@ -757,8 +757,8 @@ class FeatureGeneratorTorch(nn.Module):
         # positions_normalized = (positions_normalized - mean) / dist
         if self.config.visualize_point_batch:
             if "normals" in transform_batch:
-                visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals"])
-                # visualize_point_batch(transform_batch["points_xyz"])
+                # visualize_point_batch(transform_batch["points_xyz"], normals=transform_batch["normals"])
+                visualize_point_batch(transform_batch["points_xyz"])
                 
             else:
                 visualize_point_batch(transform_batch["points_xyz"])

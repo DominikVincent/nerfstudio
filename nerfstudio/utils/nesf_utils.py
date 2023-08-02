@@ -259,22 +259,22 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
         y=points[:, 1],
         z=points[:, 2],
         mode="markers",
-        marker=dict(color=colors, size=3, opacity=0.8),
+        marker=dict(color=colors, size=1, opacity=0.8),
     )
     data = [scatter]
     # create a layout with axes labels
-    # layout = go.Layout(
-    #     title=f"RGB points: {points_pad.shape}",
-    #     scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"), aspectmode="data"),
-    # )
     layout = go.Layout(
         title=f"RGB points: {points_pad.shape}",
-        scene=dict(
-            xaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
-            yaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
-            zaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''), 
-            aspectmode="data"),
-        )
+        scene=dict(xaxis=dict(title="X"), yaxis=dict(title="Y"), zaxis=dict(title="Z"), aspectmode="data"),
+    )
+    # layout = go.Layout(
+    #     title=f"RGB points: {points_pad.shape}",
+    #     scene=dict(
+    #         xaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+    #         yaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''),
+    #         zaxis=dict(showgrid=False, zeroline=False, showline=False, ticks='', showticklabels=False, title=''), 
+    #         aspectmode="data"),
+    #     )
     if normals is not None:
         # calculate end points for each line
         endpoints = points + normals
