@@ -25,6 +25,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
     --steps-per-eval-image 500 \
     --steps-per-save 5000 \
     --max-num-iterations 5000000 \
+	--gradient_accumulation_steps 6 \
 	--pipeline.datamanager.steps-per-model 1 \
 	--pipeline.datamanager.train-num-images-to-sample-from 8 \
 	--pipeline.datamanager.train-num-times-to-repeat-images 4 \
@@ -44,9 +45,9 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.batch_size 16384 \
 	--pipeline.model.mode semantics \
 	--pipeline.model.proximity-loss True \
-	--pipeline.model.feature-generator-config.jitter 0.0005 \
-	--pipeline.model.feature-generator-config.jitter-clip 0.0013 \
-	--pipeline.model.feature-generator-config.random_scale 1.0 \
+	--pipeline.model.feature-generator-config.jitter 0.0 \
+	--pipeline.model.feature-generator-config.jitter-clip 0.00 \
+	--pipeline.model.feature-generator-config.random_scale 0.6 \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
 	--pipeline.model.feature-generator-config.use-dir-encoding True \

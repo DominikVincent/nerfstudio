@@ -109,6 +109,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.model.masker_config.num_patches = 100
     trainConfig.pipeline.model.rgb_prediction = "integration"
     trainConfig.pipeline.model.density_prediction = "direct"
+    trainConfig.gradient_accumulation_steps = 5
 
     trainConfig.pipeline.model.use_field2field = False
     trainConfig.pipeline.model.field2field_sampler.surface_sampling = True
@@ -151,7 +152,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.set_timestamp()
     trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data
     trainConfig.pipeline.datamanager.dataparser.train_split_percentage = trainConfig.data
-    trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
+    # trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
     # trainConfig.pipeline.model.debug_show_image = True
     trainConfig.save_config()
         
