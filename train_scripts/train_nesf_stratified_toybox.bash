@@ -35,6 +35,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.datamanager.eval-num-rays-per-batch $RAYS \
 	--pipeline.model.eval-num-rays-per-chunk $RAYS \
 	--pipeline.model.sampler.surface-sampling True \
+	--pipeline.use_3d_mode True \
 	--pipeline.model.sampler.samples-per-ray 24 \
 	--pipeline.model.sampler.get-normals False \
 	--pipeline.model.sampler.ground_removal_mode "ransac" \
@@ -47,7 +48,7 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.proximity-loss True \
 	--pipeline.model.feature-generator-config.jitter 0.0 \
 	--pipeline.model.feature-generator-config.jitter-clip 0.00 \
-	--pipeline.model.feature-generator-config.random_scale 0.6 \
+	--pipeline.model.feature-generator-config.random_scale 1.0 \
 	--pipeline.model.pretrain False  \
 	--pipeline.model.feature-generator-config.use-rgb True \
 	--pipeline.model.feature-generator-config.use-dir-encoding True \

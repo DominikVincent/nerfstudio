@@ -82,6 +82,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.train_num_times_to_repeat_images = 1
     trainConfig.pipeline.datamanager.eval_num_images_to_sample_from = 8
     trainConfig.pipeline.datamanager.eval_num_times_to_repeat_images = 1
+    trainConfig.pipeline.use_3d_mode = True
     
     trainConfig.pipeline.model.pretrain = False
     trainConfig.pipeline.model.only_last_layer = False
@@ -152,7 +153,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.set_timestamp()
     trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data
     trainConfig.pipeline.datamanager.dataparser.train_split_percentage = trainConfig.data
-    # trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
+    trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
     # trainConfig.pipeline.model.debug_show_image = True
     trainConfig.save_config()
         

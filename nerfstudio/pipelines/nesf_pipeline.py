@@ -60,6 +60,7 @@ class NesfPipelineConfig(VanillaPipelineConfig):
     save_images = False
     """save images during all image evaluation"""
     images_to_sample_during_eval_image: int = 8
+    use_3d_mode: bool = False
 
 
 class NesfPipeline(Pipeline):
@@ -131,6 +132,9 @@ class NesfPipeline(Pipeline):
         """
         time1  = time()
         ray_bundle, batch = self.datamanager.next_train(step)
+        if self.config.use_3d_mode:
+            ray_bundle.nears = batch["depth_image"]
+            ray_bundle.fars = batch["depth_image"]
         time2 = time()
         CONSOLE.print(f"Time to get next train batch: {time2 - time1}")
        
@@ -171,6 +175,9 @@ class NesfPipeline(Pipeline):
         # self.datamanager.models_to_cpu(step)
         self.eval()
         ray_bundle, batch = self.datamanager.next_eval(step)
+        if self.config.use_3d_mode:
+            ray_bundle.nears = batch["depth_image"]
+            ray_bundle.fars = batch["depth_image"]
         transformer_model_outputs = self.model(ray_bundle, batch)
         metrics_dict = self.model.get_metrics_dict(transformer_model_outputs, batch)
         loss_dict = self.model.get_loss_dict(transformer_model_outputs, batch, metrics_dict)
