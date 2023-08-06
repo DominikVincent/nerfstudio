@@ -154,7 +154,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.set_timestamp()
     trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data
     trainConfig.pipeline.datamanager.dataparser.train_split_percentage = trainConfig.data
-    # trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
+    trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
     # trainConfig.pipeline.model.debug_show_image = True
     trainConfig.save_config()
         

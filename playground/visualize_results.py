@@ -4,7 +4,7 @@ from collections import defaultdict
 import plotly
 import time
 
-title = "KLEVR mIoU of best Models"
+# title = "KLEVR mIoU of best Models"
 # run_values = {
 #     "Pointnet++": {"value": 75.2, "group": "group_1"},
 #     "Custom": {"value": 83.5, "group": "group_1"},
@@ -21,13 +21,13 @@ title = "KLEVR mIoU of best Models"
 #     "DeepLab": {"value": 97.1, "group": "group_1"},
 # }
 
-run_values = {
-    "Ours: PointNet++": {"value": 75.2, "group": "group_1"},
-    "Ours: Custom": {"value": 83.5, "group": "group_1"},
-    "Ours: SPT\uFE61": {"value": 93.2, "group": "group_1"},
-    "NeSF": {"value": 92.7, "group": "group_1"},
-    "DeepLab": {"value": 97.1, "group": "group_1"},
-}
+# run_values = {
+#     "Ours: PointNet++": {"value": 75.2, "group": "group_1"},
+#     "Ours: Custom": {"value": 83.5, "group": "group_1"},
+#     "Ours: SPT\uFE61": {"value": 93.2, "group": "group_1"},
+#     "NeSF": {"value": 92.7, "group": "group_1"},
+#     "DeepLab": {"value": 97.1, "group": "group_1"},
+# }
 
 
 # Proximity Loss
@@ -136,21 +136,23 @@ run_values = {
 #     "rgb patch-fp p=0.5 k=400": {"value": 63.78, "group": "pretrained"},
 #     "normals+rgb patch-fp p=0.5 k=400": {"value": 75.11, "group": "pretrained"},
 #     "normals": {"value": 75.96, "group": "pretrained"},
+#     "density": {"value": 65.21, "group": "pretrained"},
 # }
 
 # Toybox5 impact of pretraining on mIoU 100 scenes 10 images
-# title = "Toybox5 Impact of Pretraining on mIoU, 100 scenes 10 images"
-# run_values = {
-#     "scratch": {"value": 74.58, "group": "no pretrain"},
-#     "S3DIS pretrained all parameters": {"value": 75.26, "group": "pretrained"},
-#     "rgb random p=0.5": {"value": 66.04, "group": "pretrained"},
-#     "rgb random p=0.75": {"value": 64.27, "group": "pretrained"},
-#     "rgb patch p=0.5 k=100": {"value": 65.61, "group": "pretrained"},
-#     "rgb patch p=0.5 k=400": {"value": 64.22, "group": "pretrained"},
-#     "rgb patch-fp p=0.5 k=400": {"value": 65.63, "group": "pretrained"},
-#     "normals+rgb patch-fp p=0.5 k=400": {"value": (73.96+75.24)/2, "group": "pretrained"},
-#     "normals": {"value": 75.29, "group": "pretrained"},
-# }
+title = "Toybox5 Impact of Pretraining on mIoU, 100 scenes 10 images"
+run_values = {
+    "scratch": {"value": 74.58, "group": "no pretrain"},
+    "S3DIS pretrained all parameters": {"value": 75.26, "group": "pretrained"},
+    "rgb random p=0.5": {"value": 66.04, "group": "pretrained"},
+    "rgb random p=0.75": {"value": 64.27, "group": "pretrained"},
+    "rgb patch p=0.5 k=100": {"value": 65.61, "group": "pretrained"},
+    "rgb patch p=0.5 k=400": {"value": 64.22, "group": "pretrained"},
+    "rgb patch-fp p=0.5 k=400": {"value": 65.63, "group": "pretrained"},
+    "normals+rgb patch-fp p=0.5 k=400": {"value": (73.96+75.24)/2, "group": "pretrained"},
+    "normals": {"value": 75.29, "group": "pretrained"},
+    "density": {"value": 61.17, "group": "pretrained"},
+}
 
 
 show_legend = not all(run_data["group"] == next(iter(run_values.values()))["group"] for run_data in run_values.values())
@@ -168,9 +170,9 @@ for run_name, run_data in run_values.items():
 data = []
 # colors = ["blue", "red", "green", "orange", "purple", "yellow"]
 colors = plotly.colors.qualitative.Plotly
-for i, (group, values) in enumerate(group_data.items()):
+sorted_group_data = sorted(group_data.items(), key=lambda item: item[0], reverse=True)
+for i, (group, values) in enumerate(sorted_group_data):
     text = ["{:.1f}".format(y) for y in values["y"]]
-
     data.append(
         go.Bar(
             x=values["x"],
@@ -178,7 +180,7 @@ for i, (group, values) in enumerate(group_data.items()):
             name=group,
             text=text,
             textposition="auto",
-            textfont=dict(size=124),
+            textfont=dict(size=96),
             hovertemplate="%{y:.1f}",
             marker=dict(color=colors[i % len(colors)]),
         )
@@ -192,14 +194,14 @@ layout = go.Layout(
         categoryarray=[run_value for run_value in run_values.keys() if "*" not in run_value ]  # Preserving the order of runs here
     ),
     yaxis=dict(title=y_axis_label, range=[0, 100]),
-    font=dict(family="Arial", size=110),
+    font=dict(family="Arial", size=96),
     margin=dict(l=50, r=50, b=50, t=240, pad=4),
     barmode="group",
     showlegend=show_legend,
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 
-width = 8  # inches
+width = 9  # inches
 height = 6  # inches
 dpi = 600
 fig = go.Figure(data=data, layout=layout)
