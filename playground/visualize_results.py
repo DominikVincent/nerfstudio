@@ -81,26 +81,26 @@ import time
 # }
 
 # Toybox-5 best models
-# title = "Toybox-5 mIoU of best Models"
+title = "Toybox-5 mIoU of best Models"
 # run_values = {
 #     "Pointnet++": {"value": 63.0, "group" :"group_1"}, 
 #     "Custom": {"value": 69.94, "group": "group_1"},
-#     "Stratified (S3DIS)": {"value": 83.7, "group": "group_1"},
+#     "Stratified (S3DIS)": {"value": 84.16, "group": "group_1"},
 #     "Stratified (S3DIS) + Field Head": {"value": 80.7, "group": "group_1"},
 #     "NeSF": {"value": 81.7, "group": "group_1"},
 #     "Deep Lab": {"value": 81.6, "group": "group_1"},
 # }
-# run_values = {
-#     "Ours: SPT\uFE61": {"value": 83.7, "group": "group_1"},
-#     "Ours: SPT\uFE61 + Field Head": {"value": 80.7, "group": "group_1"},
-#     "NeSF": {"value": 81.7, "group": "group_1"},
-#     "Deep Lab": {"value": 81.6, "group": "group_1"},
-# }
+run_values = {
+    "Ours: SPT\uFE61": {"value": 84.16, "group": "group_1"},
+    "Ours: SPT\uFE61 + Field Head": {"value": 80.7, "group": "group_1"},
+    "NeSF": {"value": 81.7, "group": "group_1"},
+    "Deep Lab": {"value": 81.6, "group": "group_1"},
+}
 
 # run_values = {
 #     "Ours: PointNet++": {"value": 63.0, "group": "group_1"},
 #     "Ours: Custom": {"value": 69.94, "group": "group_1"},
-#     "Ours: SPT\uFE61": {"value": 83.7, "group": "group_1"},
+#     "Ours: SPT\uFE61": {"value": 84.16, "group": "group_1"},
 #     "NeSF": {"value": 81.7, "group": "group_1"},
 #     "Deep Lab": {"value": 81.6, "group": "group_1"},
 # }
@@ -140,19 +140,19 @@ import time
 # }
 
 # Toybox5 impact of pretraining on mIoU 100 scenes 10 images
-title = "Toybox5 Impact of Pretraining on mIoU, 100 scenes 10 images"
-run_values = {
-    "scratch": {"value": 74.58, "group": "no pretrain"},
-    "S3DIS pretrained all parameters": {"value": 75.26, "group": "pretrained"},
-    "rgb random p=0.5": {"value": 66.04, "group": "pretrained"},
-    "rgb random p=0.75": {"value": 64.27, "group": "pretrained"},
-    "rgb patch p=0.5 k=100": {"value": 65.61, "group": "pretrained"},
-    "rgb patch p=0.5 k=400": {"value": 64.22, "group": "pretrained"},
-    "rgb patch-fp p=0.5 k=400": {"value": 65.63, "group": "pretrained"},
-    "normals+rgb patch-fp p=0.5 k=400": {"value": (73.96+75.24)/2, "group": "pretrained"},
-    "normals": {"value": 75.29, "group": "pretrained"},
-    "density": {"value": 61.17, "group": "pretrained"},
-}
+# title = "Toybox5 Impact of Pretraining on mIoU, 100 scenes 10 images"
+# run_values = {
+#     "scratch": {"value": 74.58, "group": "no pretrain"},
+#     "S3DIS pretrained all parameters": {"value": 75.26, "group": "pretrained"},
+#     "rgb random p=0.5": {"value": 66.04, "group": "pretrained"},
+#     "rgb random p=0.75": {"value": 64.27, "group": "pretrained"},
+#     "rgb patch p=0.5 k=100": {"value": 65.61, "group": "pretrained"},
+#     "rgb patch p=0.5 k=400": {"value": 64.22, "group": "pretrained"},
+#     "rgb patch-fp p=0.5 k=400": {"value": 65.63, "group": "pretrained"},
+#     "normals+rgb patch-fp p=0.5 k=400": {"value": (73.96+75.24)/2, "group": "pretrained"},
+#     "normals": {"value": 75.29, "group": "pretrained"},
+#     "density": {"value": 61.17, "group": "pretrained"},
+# }
 
 
 show_legend = not all(run_data["group"] == next(iter(run_values.values()))["group"] for run_data in run_values.values())
@@ -180,7 +180,7 @@ for i, (group, values) in enumerate(sorted_group_data):
             name=group,
             text=text,
             textposition="auto",
-            textfont=dict(size=96),
+            textfont=dict(size=124),
             hovertemplate="%{y:.1f}",
             marker=dict(color=colors[i % len(colors)]),
         )
@@ -194,14 +194,14 @@ layout = go.Layout(
         categoryarray=[run_value for run_value in run_values.keys() if "*" not in run_value ]  # Preserving the order of runs here
     ),
     yaxis=dict(title=y_axis_label, range=[0, 100]),
-    font=dict(family="Arial", size=96),
+    font=dict(family="Arial", size=110),
     margin=dict(l=50, r=50, b=50, t=240, pad=4),
     barmode="group",
     showlegend=show_legend,
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 
-width = 9  # inches
+width = 8  # inches
 height = 6  # inches
 dpi = 600
 fig = go.Figure(data=data, layout=layout)
