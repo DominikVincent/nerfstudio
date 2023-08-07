@@ -16,7 +16,7 @@ import time
 
 # run_values = {
 #     "Ours: SPT\uFE61": {"value": 93.2, "group": "group_1"},
-#     "Ours: SPT\uFE61 + Field Head": {"value": 92.8, "group": "group_1"},
+#     "Ours: SPT\uFE61 + Field Head": {"value": 90.0, "group": "group_1"},
 #     "NeSF": {"value": 92.7, "group": "group_1"},
 #     "DeepLab": {"value": 97.1, "group": "group_1"},
 # }
@@ -90,20 +90,20 @@ title = "Toybox-5 mIoU of best Models"
 #     "NeSF": {"value": 81.7, "group": "group_1"},
 #     "Deep Lab": {"value": 81.6, "group": "group_1"},
 # }
-run_values = {
-    "Ours: SPT\uFE61": {"value": 84.16, "group": "group_1"},
-    "Ours: SPT\uFE61 + Field Head": {"value": 81.9, "group": "group_1"},
-    "NeSF": {"value": 81.7, "group": "group_1"},
-    "Deep Lab": {"value": 81.6, "group": "group_1"},
-}
-
 # run_values = {
-#     "Ours: PointNet++": {"value": 63.0, "group": "group_1"},
-#     "Ours: Custom": {"value": 69.94, "group": "group_1"},
 #     "Ours: SPT\uFE61": {"value": 84.16, "group": "group_1"},
+#     "Ours: SPT\uFE61 + Field Head": {"value": 81.9, "group": "group_1"},
 #     "NeSF": {"value": 81.7, "group": "group_1"},
 #     "Deep Lab": {"value": 81.6, "group": "group_1"},
 # }
+
+run_values = {
+    "Ours: PointNet++": {"value": 63.0, "group": "group_1"},
+    "Ours: Custom": {"value": 69.94, "group": "group_1"},
+    "Ours: SPT\uFE61": {"value": 84.16, "group": "group_1"},
+    "NeSF": {"value": 81.7, "group": "group_1"},
+    "Deep Lab": {"value": 81.6, "group": "group_1"},
+}
 
 # Toybox-5
 # run_values = {
@@ -202,7 +202,7 @@ layout = go.Layout(
 )
 
 width = 8  # inches
-height = 4  # inches
+height = 6  # inches
 dpi = 600
 fig = go.Figure(data=data, layout=layout)
 fig.update_layout(width=int(width*dpi), height=int(height*dpi))
