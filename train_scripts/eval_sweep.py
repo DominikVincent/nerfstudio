@@ -95,7 +95,7 @@ conda activate nerfstudio2
         date_string = time.strftime("%Y_%m_%d_%I_%M_%p")
         std_out_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".out")
         std_err_log_file = LOG_PATH / (f"'{name}'" + "_" + date_string + ".err")
-        command = f"sbatch -p {partition} --gres=gpu:1 -t 60:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
+        command = f"sbatch -p {partition} --exclude=sumac --gres=gpu:1 -t 600:00 --mem-per-cpu 4000 -o {std_out_log_file} -e {std_err_log_file} '{script_path}'"
 
     print("Running command: ", command)
     # Execute the command and capture the output
@@ -123,7 +123,9 @@ def dispatch_eval_run(run: EvalRun, use_slurm=False, wandb_config=None, partitio
     input_path = run.path / "config.yml"
 
     config = yaml.load(input_path.read_text(), Loader=yaml.Loader)
-
+    
+    # config.pipeline.model.eval_num_rays_per_chunk = 2048
+    
     if run.eval_set is not None:
         config.pipeline.datamanager.dataparser.data_config = run.eval_set
 

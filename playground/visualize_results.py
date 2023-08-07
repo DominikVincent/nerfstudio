@@ -92,7 +92,7 @@ title = "Toybox-5 mIoU of best Models"
 # }
 run_values = {
     "Ours: SPT\uFE61": {"value": 84.16, "group": "group_1"},
-    "Ours: SPT\uFE61 + Field Head": {"value": 80.7, "group": "group_1"},
+    "Ours: SPT\uFE61 + Field Head": {"value": 81.9, "group": "group_1"},
     "NeSF": {"value": 81.7, "group": "group_1"},
     "Deep Lab": {"value": 81.6, "group": "group_1"},
 }
@@ -202,7 +202,7 @@ layout = go.Layout(
 )
 
 width = 8  # inches
-height = 6  # inches
+height = 4  # inches
 dpi = 600
 fig = go.Figure(data=data, layout=layout)
 fig.update_layout(width=int(width*dpi), height=int(height*dpi))

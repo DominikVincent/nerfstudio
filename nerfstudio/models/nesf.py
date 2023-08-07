@@ -469,8 +469,11 @@ class NeuralSemanticFieldModel(Model):
         query_points = query_points.reshape(-1, 3)
         if self.training and self.feature_model.config.rot_augmentation:
             query_points, neural_points = self.rot_augmentation(query_points, neural_points)
+        timea=time.time()
         field_encodings = self.field_transformer(query_points, neural_features, neural_points)
         field_encodings = field_encodings.unsqueeze(0)
+        timeb = time.time()
+        print("Querying ", query_points.shape, "took", timeb-timea, "seconds")
         time4 = time.time()
         CONSOLE.print("Field2Field Transformer took", time4-time3, "seconds")
 
@@ -892,8 +895,8 @@ class NeuralSemanticFieldModel(Model):
             
             density_mask_accu = torch.any(outputs["density_mask"], dim=-1).reshape(-1)
             outs = outputs["semantics"].reshape(-1, outputs["semantics"].shape[-1]).to(self.device)
-            gt = batch["semantics"][..., 0].long().reshape(-1)[density_mask_accu.squeeze()]
-            pred = torch.argmax(outs, dim=-1)[density_mask_accu.squeeze()]
+            gt = batch["semantics"][..., 0].long().reshape(-1)
+            pred = torch.argmax(outs, dim=-1)
             confusion_non_normalized = self.confusion_non_normalized(pred, gt).detach().cpu().numpy()
             miou, per_class_iou = compute_mIoU(confusion_non_normalized)
             total_acc, acc_per_class = calculate_accuracy(confusion_non_normalized)
