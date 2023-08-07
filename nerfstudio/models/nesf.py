@@ -471,6 +471,24 @@ class NeuralSemanticFieldModel(Model):
             query_points, neural_points = self.rot_augmentation(query_points, neural_points)
         timea=time.time()
         field_encodings = self.field_transformer(query_points, neural_features, neural_points)
+
+        # total_time = 0
+        # repetitions = 10
+        # if query_points.shape[0] >= 16384:
+        #     points_xyz_save = query_points.clone()
+        #     query_points = query_points[:16384]
+        #     fake_features = torch.randn((16384, 48)).cuda()
+        #     for _ in range(repetitions):
+        #         with torch.no_grad():
+        #             starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        #             starter.record()
+        #             field_encodings_2 = self.field_transformer(query_points, fake_features, query_points)
+        #             ender.record()
+        #             torch.cuda.synchronize()  # synchronize CUDA operations
+        #             curr_time = starter.elapsed_time(ender)/1000
+        #             total_time += curr_time
+        #     query_points = points_xyz_save
+        #     CONSOLE.print("CUDA: Forward - feature transformer: ", total_time/repetitions)
         field_encodings = field_encodings.unsqueeze(0)
         timeb = time.time()
         print("Querying ", query_points.shape, "took", timeb-timea, "seconds")
