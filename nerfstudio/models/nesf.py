@@ -891,6 +891,10 @@ class NeuralSemanticFieldModel(Model):
             rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
 
             with torch.no_grad():
+                mask = outputs["density_mask"].permute(2, 0, 1).expand_as(image)
+                image = image[mask].view(3, -1).unsqueeze(0).unsqueeze(-1)
+                rgb = rgb[mask].view(3, -1).unsqueeze(0).unsqueeze(-1)
+
                 psnr = self.psnr(image, rgb)
                 metrics_dict["psnr"] = float(psnr.item())
                 # metrics_dict["psnr_" + str(batch["model_idx"])] = metrics_dict["psnr"]
@@ -901,7 +905,7 @@ class NeuralSemanticFieldModel(Model):
                 metrics_dict["mae"] = F.l1_loss(image, rgb).item()
                 # metrics_dict["mae_" + str(batch["model_idx"])] = metrics_dict["mae"]
 
-                metrics_dict["ssim"] = self.ssim(image, rgb).item()
+                # metrics_dict["ssim"] = self.ssim(image, rgb).item()
                 # metrics_dict["ssim_" + str(batch["model_idx"])] = metrics_dict["ssim"]
 
                 if self.config.mode == "density":
