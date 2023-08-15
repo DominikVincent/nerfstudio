@@ -145,7 +145,7 @@
       "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/eval.py",
       "args": [
         "--load-config", 
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-07-11_110610_661542/auto_eval_config.yml", 
+        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-08-03_230622_457035/auto_eval_config.yml", 
         "--output-path", 
         "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-06-29_150157/auto_eval.json", 
         "--use-wandb", 
@@ -165,7 +165,7 @@
     "program": "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nerfstudio_fork/scripts/train.py",
     "args": ["nesf", 
     "--load_config", 
-    "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-06-02_230853/auto_eval_config.yml"
+    "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-07-19_170023_940539/auto_eval_config.yml"
     // "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/toybox-5-depth-normal-models/98/depth-nerfacto/07_04_23/auto_semantic_config.yml"
     ],
     "console": "integratedTerminal",

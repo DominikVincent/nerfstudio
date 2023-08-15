@@ -259,7 +259,7 @@ def visualize_point_batch(points_pad: torch.Tensor, ids_shuffle: Union[None, tor
         y=points[:, 1],
         z=points[:, 2],
         mode="markers",
-        marker=dict(color=colors, size=1, opacity=0.8),
+        marker=dict(color=colors, size=3, opacity=0.8),
     )
     data = [scatter]
     # create a layout with axes labels

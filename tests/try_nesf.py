@@ -49,13 +49,16 @@ def run_nesf(vis: str = "wandb"):
     # )
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_200_270.json"
-    # )
+    # # )
     # data_config_path = Path(
     #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_529_270.json"
     # )
     data_config_path = Path(
-        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_10_270.json"
+        "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_500_270.json"
     )
+    # data_config_path = Path(
+    #     "/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_10_270.json"
+    # )
 
     OUTPUT_DIR = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/")
     DATA_PATH = Path("/data/vision/polina/projects/wmh/dhollidt/datasets/klevr/11")
@@ -69,8 +72,8 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.output_dir = OUTPUT_DIR
     trainConfig.machine.num_gpus = 1
     trainConfig.pipeline.datamanager.dataparser.data_config = data_config_path
-    trainConfig.steps_per_eval_batch = 2
-    trainConfig.steps_per_eval_image = 3
+    trainConfig.steps_per_eval_batch = 1000
+    trainConfig.steps_per_eval_image = 3000
     trainConfig.steps_per_eval_all_images = 100000000
     trainConfig.max_num_iterations = 10000000
     # trainConfig.load_config = Path("/data/vision/polina/projects/wmh/dhollidt/documents/nerf/nesf_models/tmp/nesf/2023-07-21_103257_286997/auto_eval_config.yml")
@@ -82,7 +85,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.pipeline.datamanager.train_num_times_to_repeat_images = 1
     trainConfig.pipeline.datamanager.eval_num_images_to_sample_from = 8
     trainConfig.pipeline.datamanager.eval_num_times_to_repeat_images = 1
-    trainConfig.pipeline.use_3d_mode = True
+    trainConfig.pipeline.use_3d_mode = False
     
     trainConfig.pipeline.model.pretrain = False
     trainConfig.pipeline.model.only_last_layer = False
@@ -153,7 +156,7 @@ def run_nesf(vis: str = "wandb"):
     trainConfig.set_timestamp()
     trainConfig.pipeline.datamanager.dataparser.data = trainConfig.data
     trainConfig.pipeline.datamanager.dataparser.train_split_percentage = trainConfig.data
-    trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
+    # trainConfig.pipeline.model.feature_generator_config.visualize_point_batch = True
     # trainConfig.pipeline.model.debug_show_image = True
     trainConfig.save_config()
         

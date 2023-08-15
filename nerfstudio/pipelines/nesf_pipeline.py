@@ -197,6 +197,10 @@ class NesfPipeline(Pipeline):
             image_idx, model_idx, camera_ray_bundle, batch = self.datamanager.next_eval_images(
                 step, self.config.images_to_sample_during_eval_image
             )
+            if self.config.use_3d_mode:
+                for crb, b in zip(camera_ray_bundle, batch):
+                    crb.nears = b["depth_image"]
+                    crb.fars = b["depth_image"]
             image_idx = image_idx[0]
             model_idx = model_idx[0]
             batch = batch[0]

@@ -36,6 +36,7 @@ from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import profiler
 from nerfstudio.utils.nesf_utils import *
 from nerfstudio.utils.writer import put_config
+from pathlib import Path
 
 lt.monkey_patch()
 
@@ -249,6 +250,7 @@ class NeuralSemanticFieldModel(Model):
                 torch.nn.Linear(128, semantic_classes_count)
             )
         # self.learned_low_density_value = torch.nn.Parameter(torch.randn(output_size) * 0.1 + 0.8)
+        # self.learned_low_density_value_semantics = torch.nn.Parameter(torch.zeros(semantic_classes_count) * 0.1 + 0.8, requires_grad=True)
         self.learned_low_density_value_semantics = torch.nn.Parameter(torch.zeros(semantic_classes_count) * 0.1 + 0.8, requires_grad=False)
         self.learned_low_density_value_semantics[0] = 1.0
 
@@ -405,15 +407,30 @@ class NeuralSemanticFieldModel(Model):
         all_samples_count = density_mask.shape[0]*density_mask.shape[1]
         CONSOLE.print("Ray samples used", weights.shape[0], "out of", all_samples_count, "samples")
         
+        # code to export the sampled point clouds
+        # points_gt = ray_samples.frustums.get_positions()
+        # points_rgb = field_outputs_raw[FieldHeadNames.RGB]
+        # points_label = batch["semantics"][density_mask.to("cpu")]
+        # # concat pos, rgb, label
+        # points = torch.cat([points_gt.to("cpu"), points_rgb.to("cpu"), points_label.unsqueeze(-1)], dim=1)
+        # # save with npy format
+        # model_idx = batch["model_idx"]
+        # area_val = "5" if model_idx >=475 else "1"
+        # root_path = Path("/data/vision/polina/projects/wmh/dhollidt/documents/Pointnet_Pointnet2_pytorch/data/nesf_s3ids_format_65536_self_sample")
+        # np.save(root_path / f"Area_{area_val}_{model_idx:02}.npy", points.cpu().numpy())
+
     #    self.check_broken_normals(field_outputs_raw, batch["model_idx"])
         
         # def get_fake_output(size: int):
         #     # gt_value = torch.zeros(size, self.learned_low_density_value.shape[0]).to(self.learned_low_density_value.device)
-        #     pred_value = self.learned_low_density_value.repeat(size, 1)
+        #     pred_sem_value = self.learned_low_density_value_semantics.repeat(size, 1)
+        #     pred_rgb_value = self.learned_low_density_value_rgb.repeat(size, 1)
+        #     pred_density_value = self.learned_low_density_value_density.repeat(size, 1)
         #     outputs = {
-        #         "rgb": pred_value,
-        #         "density": pred_value,
-        #         "semantics": pred_value,
+        #         "semantics": pred_sem_value,
+        #         "rgb": pred_rgb_value,
+        #         "density": pred_density_value,
+        #         "density_mask": torch.ones(size, 1, dtype=torch.bool).to(pred_sem_value.device),
         #     }
         #     return outputs
         # outputs = get_fake_output(ray_bundle.shape[0])
@@ -509,6 +526,10 @@ class NeuralSemanticFieldModel(Model):
             field_outputs_dict["semantics"] = self.head_semantics(field_encodings)
             time7 = time.time()
             
+
+            # field_outputs_labels = torch.argmax(field_outputs_dict["semantics"], dim=-1)
+            # visualize_point_batch(transform_batch["points_xyz"], classes=field_outputs_labels)
+            
             if self.config.proximity_loss:
                 if self.config.use_field2field:
                     query_points_noise = query_points + torch.randn_like(query_points) * 0.003
@@ -531,8 +552,6 @@ class NeuralSemanticFieldModel(Model):
 
 
 
-        # field_outputs_labels = torch.argmax(field_outputs_dict["semantics"], dim=-1)
-        # visualize_point_batch(transform_batch["points_xyz"], classes=field_outputs_labels)
 
         time11 = time.time()
         # unbatch the data

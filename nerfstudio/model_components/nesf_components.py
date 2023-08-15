@@ -261,7 +261,7 @@ class SceneSampler:
             
             # visualize_point_batch(filtered_points.cpu().unsqueeze(0))
             
-            model = RANSACRegressor()
+            model = RANSACRegressor(max_trials=100)
             model.fit(filtered_points[..., :2].cpu(), filtered_points[..., 2].cpu())
             
             # Extract the parameters of the fitted plane
