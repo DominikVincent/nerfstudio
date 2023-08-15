@@ -3,8 +3,6 @@
 set -x  # Enable debug mode to print each command
 
 # Set the path to the directory containing the folders
-# directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/klevr_nesf"
-# directory_path="/data/vision/polina/projects/wmh/dhollidt/datasets/toybox-5"
 directory_path="/data/vision/polina/projects/wmh/dhollidt/kubric_datasets/klevr"
 
 # Set ouput directory
