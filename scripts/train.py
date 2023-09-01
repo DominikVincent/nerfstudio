@@ -39,6 +39,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import torch
+torch.autograd.set_detect_anomaly(True)
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import tyro

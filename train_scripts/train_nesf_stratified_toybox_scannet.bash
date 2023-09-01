@@ -7,9 +7,9 @@ conda activate nerfstudio2
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_10.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/klever_depth_nesf_train_100.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_train_100_270.json"
-DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_500_270.json"
+# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_500_270.json"
 # DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_270.json"
-# DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_100_10.json"
+DATA_CONFIG="/data/vision/polina/projects/wmh/dhollidt/documents/nerf/data/toybox-5_nesf_2_train_10_270.json"
 
 # RAYS=131072
 RAYS=65536
@@ -64,8 +64,13 @@ ns-train nesf --data /data/vision/polina/projects/wmh/dhollidt/datasets/klevr_ne
 	--pipeline.model.feature-transformer-model "stratified" \
 	--pipeline.model.feature-transformer-stratified-config.grid_size 0.005 \
 	--pipeline.model.feature-transformer-stratified-config.quant_size 0.001 \
+	--pipeline.model.feature-transformer-stratified-config.depths  3 3 9 3 3 \
+	--pipeline.model.feature-transformer-stratified-config.channels 48 96 192 384 384 \
+	--pipeline.model.feature-transformer-stratified-config.num_heads 3 6 12 24 24 \
+	--pipeline.model.feature-transformer-stratified-config.num_layers 5 \
 	--pipeline.model.feature-transformer-stratified-config.window_size 4 \
-	--pipeline.model.feature-transformer-stratified-config.load_dir "/data/vision/polina/projects/wmh/dhollidt/documents/Stratified-Transformer/weights/s3dis_model_best.pth" \
+	--pipeline.model.feature-transformer-stratified-config.stem_transformer False \
+	--pipeline.model.feature-transformer-stratified-config.load_dir "/data/vision/polina/projects/wmh/dhollidt/documents/Stratified-Transformer/weights/scannet_model_best.pth" \
 	nesf-data \
 	--data-config $DATA_CONFIG 
 

@@ -252,7 +252,7 @@ class NeuralSemanticFieldModel(Model):
         # self.learned_low_density_value = torch.nn.Parameter(torch.randn(output_size) * 0.1 + 0.8)
         # self.learned_low_density_value_semantics = torch.nn.Parameter(torch.zeros(semantic_classes_count) * 0.1 + 0.8, requires_grad=True)
         self.learned_low_density_value_semantics = torch.nn.Parameter(torch.zeros(semantic_classes_count) * 0.1 + 0.8, requires_grad=False)
-        self.learned_low_density_value_semantics[0] = 1.0
+        # self.learned_low_density_value_semantics[0] = 1.0
 
         self.learned_low_density_value_rgb = torch.nn.Parameter(torch.zeros(3) * 0.1 + 0.8, requires_grad=False)
         self.learned_low_density_value_normals = torch.nn.Parameter(torch.randn(3) * 0.1 + 0.8, requires_grad=True)

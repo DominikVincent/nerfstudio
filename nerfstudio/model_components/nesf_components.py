@@ -261,7 +261,7 @@ class SceneSampler:
             
             # visualize_point_batch(filtered_points.cpu().unsqueeze(0))
             
-            model = RANSACRegressor(max_trials=100)
+            model = RANSACRegressor(max_trials=400)
             model.fit(filtered_points[..., :2].cpu(), filtered_points[..., 2].cpu())
             
             # Extract the parameters of the fitted plane
@@ -544,6 +544,9 @@ class FeatureGeneratorTorchConfig(InstantiateConfig):
     pos_encoder: Literal["sin", "rff"] = "sin"
     """what kind of feature encoded should be used?"""
 
+    drop_feature_p: float = 0.0
+    """p of dropping t"""
+
 
 class FeatureGeneratorTorch(nn.Module):
     """Takes in a batch of b Ray bundles, samples s points along the ray. Then it outputs n x m x f matrix.
@@ -748,6 +751,9 @@ class FeatureGeneratorTorch(nn.Module):
 
         time10 = time.time()
         out = torch.cat(encodings, dim=-1)
+
+        if np.random.rand() < self.config.drop_feature_p and self.training:
+            out = out * 0
         # out: 1, num_dense, out_dim
         # weights: num_rays, num_samples, 1
 
